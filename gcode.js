@@ -3682,16 +3682,41 @@
     // override. dir: 'enter' (heat up, prime, THEN apply the foam overrides) |
     // 'exit' (revert overrides FIRST, cool down, THEN prime). dest is the next
     // point on the part (absolute machine coords) to resume printing at.
+    // Exit only: an optional cooldown BELOW the normal temps first. Foaming
+    // material is still expanding at temperatures well under the foam setpoint,
+    // and a slow primer keeps it in the heated zones long enough to foam a
+    // little even at the normal temps — so just cooling to normal isn't
+    // always enough to flush it. Cooling to a clearly lower temperature (each
+    // zone never above its own normal temp), waiting for it, and only THEN
+    // heating back up to normal guarantees everything in the barrel has
+    // actually been below the foaming range before printing resumes.
+    // 0 (or a value at/above every zone's normal temp) = off: straight to
+    // the normal temps, exactly as before.
+    const exitCool = foamOn && foamCfg.exitCool > 0 ? foamCfg.exitCool : 0;
+    const exitCoolOn = exitCool > 0 && exitCool < Math.max(pel.up, pel.mid, pel.down);
+    if (foamOn && exitCool > 0 && !exitCoolOn) {
+      warnings.push(
+        'Exit-foam cooldown (' + exitCool + ' C) is not below the normal zone temps — skipped, cooling straight to them.'
+      );
+    }
+    // The exit primer can be a snake of several lines (one way, a step of one
+    // line width in +Y, back the other way, ...) instead of one long slow
+    // line: the same material over a shorter, faster stretch spends less time
+    // in the heated zones. The enter primer is always a single line.
+    const exitLines = foamOn ? Math.max(1, Math.round(foamCfg.primer2.lines || 1)) : 1;
     function emitFoamTransition(dir, dest) {
       const entering = dir === 'enter';
       const primer = entering ? foamCfg.primer1 : foamCfg.primer2;
       const primerArea = entering ? primer1Area : primer2Area;
       const primerStart = { x: 0, y: 0, z: primer.layerHeight };
       const primerEnd = { x: primer.length, y: 0, z: primer.layerHeight };
+      const coolPhase = !entering && exitCoolOn;
       lines.push(
         '; --- foam ' + (entering ? 'ENTER' : 'EXIT') + ': ' +
           (entering
             ? 'heat to ' + foamCfg.tempUp + '/' + foamCfg.tempMid + '/' + foamCfg.tempDown + 'C'
+            : coolPhase
+            ? 'cool to ' + exitCool + 'C (below foaming), reheat to normal temps'
             : 'cool to normal temps') + ' + prime ---'
       );
       if (!entering) {
@@ -3706,9 +3731,14 @@
       const tUp = entering ? foamCfg.tempUp : pel.up;
       const tMid = entering ? foamCfg.tempMid : pel.mid;
       const tDown = entering ? foamCfg.tempDown : pel.down;
-      lines.push('_GINGER_EXTRUDER_SET_UP S=' + tUp);
-      lines.push('_GINGER_EXTRUDER_SET_MID S=' + tMid);
-      lines.push('_GINGER_EXTRUDER_SET_DOWN S=' + tDown);
+      // Zone targets for the first temperature step: the cooldown (each zone
+      // capped at its own normal temp), or just the final temps.
+      const sUp = coolPhase ? Math.min(exitCool, tUp) : tUp;
+      const sMid = coolPhase ? Math.min(exitCool, tMid) : tMid;
+      const sDown = coolPhase ? Math.min(exitCool, tDown) : tDown;
+      lines.push('_GINGER_EXTRUDER_SET_UP S=' + sUp);
+      lines.push('_GINGER_EXTRUDER_SET_MID S=' + sMid);
+      lines.push('_GINGER_EXTRUDER_SET_DOWN S=' + sDown);
       // Clear by double the tallest Z printed anywhere so far, not just a
       // couple of layer heights — the transition travels clear across the
       // bed to X0/Y0, and a margin based only on the current point can still
@@ -3725,11 +3755,32 @@
       if (entering) {
         lines.push('TEMPERATURE_WAIT SENSOR=extruder2 MINIMUM=' + (tDown - 2));
       } else {
-        lines.push('TEMPERATURE_WAIT SENSOR=extruder MAXIMUM=' + (tUp + 2));
-        lines.push('TEMPERATURE_WAIT SENSOR=extruder1 MAXIMUM=' + (tMid + 2));
-        lines.push('TEMPERATURE_WAIT SENSOR=extruder2 MAXIMUM=' + (tDown + 2));
+        lines.push('TEMPERATURE_WAIT SENSOR=extruder MAXIMUM=' + (sUp + 2));
+        lines.push('TEMPERATURE_WAIT SENSOR=extruder1 MAXIMUM=' + (sMid + 2));
+        lines.push('TEMPERATURE_WAIT SENSOR=extruder2 MAXIMUM=' + (sDown + 2));
       }
-      emitSeg(primerEnd, primer.feed, 1, primerArea);
+      if (coolPhase) {
+        // Everything is now below the foaming range: heat back to the normal
+        // extruding temps. As when entering foam, only the down zone (the one
+        // at the nozzle) has to actually get there before priming starts.
+        lines.push('; foam exit: reheat to the normal extruding temps');
+        lines.push('_GINGER_EXTRUDER_SET_UP S=' + tUp);
+        lines.push('_GINGER_EXTRUDER_SET_MID S=' + tMid);
+        lines.push('_GINGER_EXTRUDER_SET_DOWN S=' + tDown);
+        lines.push('TEMPERATURE_WAIT SENSOR=extruder2 MINIMUM=' + (tDown - 2));
+      }
+      if (entering || exitLines === 1) {
+        emitSeg(primerEnd, primer.feed, 1, primerArea);
+      } else {
+        // Snake: each line one way, a connector of one line width in +Y, then
+        // back the other way — one continuous extrusion, no travel between.
+        for (let r = 0; r < exitLines; r++) {
+          const y = r * primer.lineWidth;
+          const forward = r % 2 === 0;
+          if (r > 0) emitSeg({ x: forward ? 0 : primer.length, y: y, z: primer.layerHeight }, primer.feed, 1, primerArea);
+          emitSeg({ x: forward ? primer.length : 0, y: y, z: primer.layerHeight }, primer.feed, 1, primerArea);
+        }
+      }
       if (entering) {
         lines.push('M221 S' + foamCfg.extrusionPct + ' ; foam: reduced extrusion');
         lines.push('M220 S' + foamSpeedPct + ' ; foam: increased speed (flow-matched)');
@@ -3751,7 +3802,9 @@
         '; foam primers: enter ' + foamCfg.primer1.length + 'mm @ ' + foamCfg.primer1.lineWidth + 'x' +
           foamCfg.primer1.layerHeight + 'mm F' + Math.round(foamCfg.primer1.feed) + ' | exit ' +
           foamCfg.primer2.length + 'mm @ ' + foamCfg.primer2.lineWidth + 'x' + foamCfg.primer2.layerHeight +
-          'mm F' + Math.round(foamCfg.primer2.feed)
+          'mm F' + Math.round(foamCfg.primer2.feed) +
+          (exitLines > 1 ? ' x ' + exitLines + ' snake lines (+Y by one line width each)' : '') +
+          (exitCoolOn ? ' | exit cooldown to ' + exitCool + 'C then reheat' : '')
       );
     }
 
