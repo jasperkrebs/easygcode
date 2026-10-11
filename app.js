@@ -3292,9 +3292,12 @@
     syncPrinterCards();
   }
 
-  // Brim base: says plainly when the "top layer" option can't do anything
-  // (it only differs from the bottom layer where the bend-spread gradient
-  // pushes the upper layers out past the lower ones).
+  // Brim base: says plainly whether the "top layer" option can do anything
+  // with the current settings, and by how much. It only differs from the
+  // bottom layer where the bend-spread gradient pushes the upper layers out
+  // past the lower ones — which needs legs, the spread and more than one
+  // layer, AND the attractor's reach (R2) to actually touch the outermost
+  // ring. Reports the measured difference rather than leaving that to guess.
   function syncBsBrimBaseHint(cfg) {
     const hint = $('bs_brimBaseHint');
     if (!hint) return;
@@ -3302,14 +3305,50 @@
       hint.textContent = '';
       return;
     }
-    const spread =
-      cfg.disc.legs.enabled && cfg.disc.attractor.enabled && cfg.disc.layers > 1;
-    hint.textContent = spread
-      ? 'The brim\'s first ring sits one line width outside the TOP layer\'s outline, flattened onto the bed, so ' +
-        'the spread-out, overhanging lines never land on it. Everywhere else the two outlines match, so it ' +
-        'looks the same there. It needs more than one layer to matter.'
-      : 'No effect with this setup — the top and bottom layers have the same outline unless legs, the bend-zone ' +
-        'spread and more than one layer are all on.';
+    const missing = [];
+    if (!cfg.disc.legs.enabled) missing.push('legs are off');
+    if (!cfg.disc.attractor.enabled) missing.push('the bend-zone spread is off');
+    if (!(cfg.disc.layers > 1)) missing.push('there is only 1 layer (the spread grows layer by layer)');
+    if (missing.length) {
+      hint.textContent =
+        'No effect with this setup: ' + missing.join(' and ') + ', so the top and bottom layers have the same outline.';
+      return;
+    }
+    const lw = cfg.lineWidth;
+    if (!isPos(lw) || !isPos(cfg.disc.diameter)) {
+      hint.textContent = '';
+      return;
+    }
+    const spec = window.GcodeGen.discSpec(cfg);
+    if (!spec.legs) {
+      hint.textContent = 'No effect with this setup: the legs are invalid (see above), so there is no spread.';
+      return;
+    }
+    const top = window.GcodeGen.discLoops(cfg, spec).outline;
+    const bottom = window.GcodeGen.discLoops(cfg, spec, 0).outline;
+    let reach = 0;
+    for (let i = 0; i < top.length; i++) {
+      const p = top[i];
+      let m = Infinity;
+      for (let j = 0; j < bottom.length; j++) {
+        const a = bottom[j];
+        const b = bottom[(j + 1) % bottom.length];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1e-12)));
+        const d = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+        if (d < m) m = d;
+      }
+      if (m > reach) reach = m;
+    }
+    hint.textContent =
+      reach < 0.5
+        ? 'Almost no effect with this setup: the spread barely reaches the outermost ring (the top outline is only ' +
+          reach.toFixed(2) + ' mm outside the bottom one), so the two brims are nearly the same — the attractor\'s ' +
+          'outer radius R2 has to reach the leg\'s outer edge. Raise R2, or move the attractor closer to it.'
+        : 'The top layer\'s outline reaches up to ' + reach.toFixed(1) + ' mm past the bottom layer\'s; the brim\'s ' +
+          'first ring sits one line width outside the top outline, flattened onto the bed, so the spread-out, ' +
+          'overhanging lines never land on it. Everywhere else the two outlines match.';
   }
 
   // Live status for the foaming card: mode/layer mismatches (which the
