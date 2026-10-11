@@ -83,7 +83,21 @@ keep **fully independent settings** per project:
   an exact wait can stall the print indefinitely. Entering foam only the **down zone**
   (closest to the nozzle, doing the actual expansion) has to be up to temperature, so it
   waits for `MINIMUM=target-2`; exiting foam all **three zones** need to have cooled back
-  down, so each waits for `MAXIMUM=target+2`. Both
+  down, so each waits for `MAXIMUM=target+2`. Two optional exit settings handle foam
+  that's hard to flush: an **exit-foam cooldown (°C)** first cools all three zones to that
+  temperature — each zone capped at its own normal temp — waits for them (`MAXIMUM=+2`),
+  and only *then* reheats to the normal temps, waiting for the down zone to get back
+  (`MINIMUM=target-2`) before priming; foaming material keeps expanding well below the
+  foam setpoint, so merely cooling to the normal temps can leave some still foaming, while
+  going clearly lower and coming back up guarantees everything in the barrel has been below
+  the foaming range (0, or a value not below the normal temps — which warns — keeps the
+  straight-to-normal behaviour). And the exit primer can be a **snake of several lines**
+  (**exit-foam primer lines**, with the existing length/line width/layer height/feed per
+  line): one way, a connector of one line width in +Y, then back the other way, and so on,
+  as one continuous extrusion with no travel in between — the same material over a shorter,
+  faster stretch spends less time in the heated zones than one long slow line (e.g. 5 lines
+  of 40 mm at a line width of 10 lays a 40 × 50 mm block from X0 Y0). A live hint spells out
+  the resulting exit sequence. The enter primer is unchanged (always one line). Both
   primers always print at 100 % speed/extrusion: entering, the `M220`/`M221` overrides
   are applied *after* the prime line; exiting, they're reverted to 100/100 *before* it
   — so neither primer ever needs its own override math. Enabling foaming outside

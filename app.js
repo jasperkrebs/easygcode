@@ -206,6 +206,7 @@
             tempMid: num('bs_foamTempMid'),
             tempDown: num('bs_foamTempDown'),
             extrusionPct: num('bs_foamExtrusionPct'),
+            exitCool: Math.max(0, num('bs_foamExitCool')),
             primer1: {
               length: num('bs_primer1Length'),
               lineWidth: num('bs_primer1Width'),
@@ -214,6 +215,7 @@
             },
             primer2: {
               length: num('bs_primer2Length'),
+              lines: Math.max(1, Math.round(num('bs_primer2Lines')) || 1),
               lineWidth: num('bs_primer2Width'),
               layerHeight: num('bs_primer2LayerHeight'),
               feed: num('bs_primer2Feed'),
@@ -597,6 +599,8 @@
           return 'Enter valid foam zone up/mid/down temperatures.';
         if (!Number.isFinite(fm.extrusionPct) || fm.extrusionPct <= 0 || fm.extrusionPct > 100)
           return 'Foam extrusion % must be between 1 and 100.';
+        if (!Number.isFinite(fm.exitCool) || fm.exitCool < 0)
+          return 'Exit-foam cooldown must be 0 (off) or a temperature in °C.';
         for (const key of ['primer1', 'primer2']) {
           const pr = fm[key];
           if (!isPos(pr.length) || !isPos(pr.lineWidth) || !isPos(pr.layerHeight) || !isPos(pr.feed)) {
@@ -3370,7 +3374,34 @@
     const speedPct = Math.round(10000 / fm.extrusionPct);
     $('bs_foamHint').textContent =
       'Speed follows extrusion to keep flow constant: ' + fm.extrusionPct + '% extrusion → ' +
-      speedPct + '% speed (M220/M221). Both primers always print at 100%/100%.';
+      speedPct + '% speed (M220/M221). Both primers always print at 100%/100%.' +
+      (cfg.printer.mode === 'pellet' ? exitFoamHint(cfg) : '');
+  }
+
+  // What the exit transition will actually do, in order — so the cooldown and
+  // the snake are readable without opening the G-code.
+  function exitFoamHint(cfg) {
+    const fm = cfg.disc.foam;
+    const pel = cfg.printer.pellet;
+    const pr = fm.primer2;
+    const maxNormal = Math.max(pel.up, pel.mid, pel.down);
+    let s = ' Exit: ';
+    if (fm.exitCool > 0 && fm.exitCool < maxNormal) {
+      s += 'cool to ' + fm.exitCool + '°C (never above a zone\'s normal temp), wait for all three zones, reheat to ' +
+        pel.up + '/' + pel.mid + '/' + pel.down + '°C and wait for the nozzle zone, then ';
+    } else if (fm.exitCool > 0) {
+      s += 'the cooldown (' + fm.exitCool + '°C) isn\'t below the normal temps, so it\'s skipped — cool straight to them, then ';
+    } else {
+      s += 'cool straight to the normal temps (set a cooldown to go lower first), then ';
+    }
+    if (isPos(pr.length) && isPos(pr.lineWidth) && pr.lines > 1) {
+      s += 'prime ' + pr.lines + ' lines of ' + pr.length + ' mm, snaking in +Y by ' + pr.lineWidth + ' mm each (a ' +
+        pr.length + ' × ' + ((pr.lines - 1) * pr.lineWidth + pr.lineWidth).toFixed(1) + ' mm block, ' +
+        (pr.lines * pr.length + (pr.lines - 1) * pr.lineWidth).toFixed(0) + ' mm of line in all).';
+    } else {
+      s += 'prime one ' + (isPos(pr.length) ? pr.length : '?') + ' mm line.';
+    }
+    return s;
   }
 
   // Live status for the feed-mode card: shows whichever number the CURRENT
