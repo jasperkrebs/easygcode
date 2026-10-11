@@ -3672,10 +3672,18 @@
     let foamSpeedPct = 100;
     let primer1Area = 0;
     let primer2Area = 0;
+    // Each primer's speed is either a plain feed (mm/min) or — when its flow
+    // is set (> 0) — a volumetric flow (mm^3/s), converted through that
+    // primer's OWN bead area (its own line width x layer height), same
+    // convention as every other flow setting in the app. 0 = use the feed.
+    let primer1Feed = 0;
+    let primer2Feed = 0;
     if (foamOn) {
       foamSpeedPct = Math.round(10000 / Math.max(1, foamCfg.extrusionPct));
       primer1Area = beadArea(foamCfg.primer1.lineWidth, foamCfg.primer1.layerHeight);
       primer2Area = beadArea(foamCfg.primer2.lineWidth, foamCfg.primer2.layerHeight);
+      primer1Feed = foamCfg.primer1.flow > 0 ? (foamCfg.primer1.flow * 60) / Math.max(primer1Area, 1e-6) : foamCfg.primer1.feed;
+      primer2Feed = foamCfg.primer2.flow > 0 ? (foamCfg.primer2.flow * 60) / Math.max(primer2Area, 1e-6) : foamCfg.primer2.feed;
     }
     // A prime line at machine X0/Y0 (independent of the part's bed position),
     // its own layer height/line width/feed, always at the current 100%/100%
@@ -3708,6 +3716,7 @@
       const entering = dir === 'enter';
       const primer = entering ? foamCfg.primer1 : foamCfg.primer2;
       const primerArea = entering ? primer1Area : primer2Area;
+      const primerFeed = entering ? primer1Feed : primer2Feed;
       const primerStart = { x: 0, y: 0, z: primer.layerHeight };
       const primerEnd = { x: primer.length, y: 0, z: primer.layerHeight };
       const coolPhase = !entering && exitCoolOn;
@@ -3770,15 +3779,15 @@
         lines.push('TEMPERATURE_WAIT SENSOR=extruder2 MINIMUM=' + (tDown - 2));
       }
       if (entering || exitLines === 1) {
-        emitSeg(primerEnd, primer.feed, 1, primerArea);
+        emitSeg(primerEnd, primerFeed, 1, primerArea);
       } else {
         // Snake: each line one way, a connector of one line width in +Y, then
         // back the other way — one continuous extrusion, no travel between.
         for (let r = 0; r < exitLines; r++) {
           const y = r * primer.lineWidth;
           const forward = r % 2 === 0;
-          if (r > 0) emitSeg({ x: forward ? 0 : primer.length, y: y, z: primer.layerHeight }, primer.feed, 1, primerArea);
-          emitSeg({ x: forward ? primer.length : 0, y: y, z: primer.layerHeight }, primer.feed, 1, primerArea);
+          if (r > 0) emitSeg({ x: forward ? 0 : primer.length, y: y, z: primer.layerHeight }, primerFeed, 1, primerArea);
+          emitSeg({ x: forward ? primer.length : 0, y: y, z: primer.layerHeight }, primerFeed, 1, primerArea);
         }
       }
       if (entering) {
@@ -3800,9 +3809,10 @@
       );
       lines.push(
         '; foam primers: enter ' + foamCfg.primer1.length + 'mm @ ' + foamCfg.primer1.lineWidth + 'x' +
-          foamCfg.primer1.layerHeight + 'mm F' + Math.round(foamCfg.primer1.feed) + ' | exit ' +
+          foamCfg.primer1.layerHeight + 'mm F' + Math.round(primer1Feed) +
+          (foamCfg.primer1.flow > 0 ? ' (' + foamCfg.primer1.flow + ' mm3/s)' : '') + ' | exit ' +
           foamCfg.primer2.length + 'mm @ ' + foamCfg.primer2.lineWidth + 'x' + foamCfg.primer2.layerHeight +
-          'mm F' + Math.round(foamCfg.primer2.feed) +
+          'mm F' + Math.round(primer2Feed) + (foamCfg.primer2.flow > 0 ? ' (' + foamCfg.primer2.flow + ' mm3/s)' : '') +
           (exitLines > 1 ? ' x ' + exitLines + ' snake lines (+Y by one line width each)' : '') +
           (exitCoolOn ? ' | exit cooldown to ' + exitCool + 'C then reheat' : '')
       );

@@ -96,7 +96,12 @@ keep **fully independent settings** per project:
   line): one way, a connector of one line width in +Y, then back the other way, and so on,
   as one continuous extrusion with no travel in between — the same material over a shorter,
   faster stretch spends less time in the heated zones than one long slow line (e.g. 5 lines
-  of 40 mm at a line width of 10 lays a 40 × 50 mm block from X0 Y0). A live hint spells out
+  of 40 mm at a line width of 10 lays a 40 × 50 mm block from X0 Y0). Each primer's speed can also be given as a **volumetric flow (mm³/s)** instead of
+  a feed: set its flow field above 0 and the feed becomes `flow × 60 / bead area`, using
+  that primer's *own* bead area (its line width × layer height, since the primers differ from
+  the print and from each other); 0 keeps using the feed field. The live hint shows the
+  conversion both ways for each primer (flow → mm/min, or the mm³/s a feed gives), so it never
+  has to be done by hand. A live hint spells out
   the resulting exit sequence. The enter primer is unchanged (always one line). Both
   primers always print at 100 % speed/extrusion: entering, the `M220`/`M221` overrides
   are applied *after* the prime line; exiting, they're reverted to 100/100 *before* it
