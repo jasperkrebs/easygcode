@@ -19,7 +19,23 @@ keep **fully independent settings** per project:
   tangent **fillets** at the junctions and concentric tip caps. **Seat height** is
   measured rim edge → tip edge (cap arcs included). The seam is anchored at 0°
   (between the two right legs) on the outermost ring; inner rings absorb the
-  staircase drift. The brim follows the full outline including legs. Supports
+  staircase drift. The brim follows the full outline including legs. A **Brim follows** dropdown
+  picks which layer's outline that is: the **bottom layer** (default — what actually prints
+  first, unspread while the bend-spread gradient is on) or the **top layer, projected down**
+  flat onto the bed. With the spread, the upper layers reach out past the lower ones, so
+  the overhang there (which, with overhang drop, also sinks back toward the bed) lands on a
+  brim hugging the bottom outline and fuses to it — a brim that is very hard to get off, in
+  exactly the zone where it isn't needed for adhesion. Brimming from the top outline keeps
+  the first ring one line width clear of where the top layer actually reaches (verified: the
+  closest approach is exactly `brim/2 + wall/2`, versus 0.3 mm for the bottom-based brim at the
+  same settings), while everywhere without spread the two outlines — and so the brims —
+  coincide. The part itself doesn't move when you toggle it: the bed fit still centres on
+  the bottom outline. The top outline has tight concave notches where the spread meets the
+  legs, which the usual per-vertex offset folds over into small self-crossing loops (a tangle
+  of overlapping beads, and rings that end up *closer* than they should); this mode therefore
+  trims each fold back to the point where the two offset lines cross, leaving convex corners
+  untouched. It does nothing without legs, the bend-zone spread and more than one layer, and
+  the live hint says so. Supports
   stacked layers. Optional **bend-zone spread** (attractor points): one point per
   leg on the center→tip line (position in mm from the rim), with a full-effect
   radius R1 and a smoothstep falloff to R2. Inside R1 every legged loop is locally

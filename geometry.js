@@ -329,6 +329,69 @@
     return out;
   }
 
+  // offsetClosed, with the folds it makes at tight CONCAVE spots trimmed out.
+  // Offsetting outward past a notch sharper than the offset distance makes
+  // the per-vertex curve cross itself in a small "swallowtail" loop — a loop
+  // that, printed, is a tangle of overlapping beads, and whose points sit
+  // well inside the distance they were supposed to keep. Each crossing is
+  // found (only against segments a short way along the curve: swallowtails
+  // are local) and the sub-loop that runs against the shape's own winding is
+  // cut out, leaving the two offset lines meeting at the crossing — exactly
+  // where a true offset has its corner. Convex corners stay as offsetClosed
+  // has them (the bisector, a distance d from the vertex), so unlike
+  // trueOffset's miters a sharp convex corner never grows a spike.
+  function offsetClosedTrim(pts, d, dirSign) {
+    let loop = offsetClosed(pts, d, dirSign);
+    if (loop.length < 4) return loop;
+    const sign0 = signedArea(pts) >= 0 ? 1 : -1;
+    const cr = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    function segInt(a, b, c, e) {
+      const d1 = cr(a, b, c);
+      const d2 = cr(a, b, e);
+      const d3 = cr(c, e, a);
+      const d4 = cr(c, e, b);
+      if (!(d1 * d2 < 0 && d3 * d4 < 0)) return null;
+      const t = d3 / (d3 - d4);
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    let i = 0;
+    let guard = 0;
+    while (i < loop.length && guard < 2000) {
+      const n = loop.length;
+      if (n < 4) break;
+      const W = Math.min(n - 3, 240);
+      let hitK = -1;
+      let ix = null;
+      for (let k = 2; k <= W; k++) {
+        const j = (i + k) % n;
+        const h = segInt(loop[i], loop[(i + 1) % n], loop[j], loop[(j + 1) % n]);
+        if (h) {
+          hitK = k;
+          ix = h;
+          break;
+        }
+      }
+      if (!ix) {
+        i++;
+        continue;
+      }
+      guard++;
+      if (i > 0) {
+        loop = loop.slice(i).concat(loop.slice(0, i));
+        i = 0;
+      }
+      const A = [ix].concat(loop.slice(1, hitK + 1)); // ix -> p1 .. pk -> back to ix
+      const B = [ix].concat(loop.slice(hitK + 1)); // ix -> pk+1 .. p0 -> back to ix
+      const aA = signedArea(A) * sign0;
+      const aB = signedArea(B) * sign0;
+      // The swallowtail runs against the shape's winding; failing that, drop
+      // whichever sub-loop is the smaller.
+      const dropA = aA < 0 && aB >= 0 ? true : aB < 0 && aA >= 0 ? false : Math.abs(aA) <= Math.abs(aB);
+      loop = dropA ? [loop[0], ix].concat(loop.slice(hitK + 1)) : A;
+    }
+    return loop;
+  }
+
   // A real (per-EDGE, not per-vertex) inward polygon offset: intersects
   // each edge's own offset LINE with its neighbors', and — unlike
   // offsetClosed's cheap per-vertex miter-normal average, which folds a
@@ -1778,6 +1841,7 @@
     perimeter,
     resampleClosed,
     offsetClosed,
+    offsetClosedTrim,
     trueOffset,
     maxValidInset,
     dist,

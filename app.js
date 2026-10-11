@@ -156,6 +156,8 @@
     return {
       enabled: $(pre + 'brimEnabled').checked,
       outerStyle: $(pre + 'brimOuterStyle').value === 'mouseEar' ? 'mouseEar' : 'normal',
+      // Bend stool only: which layer's outline the outer brim offsets from.
+      base: $(pre + 'brimBase') && $(pre + 'brimBase').value === 'top' ? 'top' : 'bottom',
       linesOuter: Math.max(0, Math.round(num(pre + 'brimLinesOuter'))),
       linesInner: Math.max(0, Math.round(num(pre + 'brimLinesInner'))),
       lineWidth: num(pre + 'brimLineWidth'),
@@ -2013,6 +2015,15 @@
 
     let maxR = spec.snappedD / 2;
     if (legs) maxR = n * lw + cfg.disc.legs.seatHeight;
+    // Brim base: the bottom layer's outline (unspread while the bend-spread
+    // gradient is on), or — optionally — the top layer's, projected down.
+    const dl0 = window.GcodeGen.discLoops(cfg, spec);
+    const bottomOutline =
+      dl0.attrOn && cfg.disc.layers > 1 ? window.GcodeGen.discLoops(cfg, spec, 0).outline : dl0.outline;
+    const brimOutlineBS = legs && cfg.brim.base === 'top' ? dl0.outline : bottomOutline;
+    const maxRad = (pts) => pts.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+    // The spread can reach past the plain legs' extent; keep it in frame.
+    if (brimOutlineBS !== bottomOutline) maxR += Math.max(0, maxRad(brimOutlineBS) - maxRad(bottomOutline));
     let brimExtent = 0;
     if (cfg.brim.enabled && cfg.brim.linesOuter > 0 && isPos(cfg.brim.lineWidth)) {
       brimExtent = cfg.brim.lineWidth / 2 + lw / 2 + (cfg.brim.linesOuter - 1) * cfg.brim.lineWidth + cfg.brim.lineWidth / 2;
@@ -2038,16 +2049,21 @@
     const dl = window.GcodeGen.discLoops(cfg, spec);
 
     // Brim (dashed): offsets of the outline the GENERATOR brims — the bottom
-    // layer's, which is unspread while the bend-spread gradient is active.
+    // layer's (unspread while the bend-spread gradient is active), or the top
+    // layer's projected down when the brim is set to follow that.
     if (brimExtent > 0) {
-      const brimOutline =
-        dl.attrOn && cfg.disc.layers > 1 ? window.GcodeGen.discLoops(cfg, spec, 0).outline : dl.outline;
+      const brimOutline = brimOutlineBS;
       ctx.setLineDash([5 * sf, 4 * sf]);
       ctx.strokeStyle = '#2bd9a0';
       ctx.lineWidth = 1.2 * sf;
       for (let k = 1; k <= cfg.brim.linesOuter; k++) {
         const d = cfg.brim.lineWidth / 2 + lw / 2 + (k - 1) * cfg.brim.lineWidth;
-        strokePoly(window.Geo.offsetClosed(brimOutline, d), true);
+        strokePoly(
+          brimOutlineBS !== bottomOutline
+            ? window.Geo.offsetClosedTrim(brimOutline, d)
+            : window.Geo.offsetClosed(brimOutline, d),
+          true
+        );
       }
       ctx.setLineDash([]);
     }
@@ -3264,6 +3280,7 @@
     } else if (cfg.project === 'bendstool') {
       syncFoamHint(cfg);
       syncFlowFeedHint(cfg);
+      syncBsBrimBaseHint(cfg);
     } else if (cfg.project === 'spoon') {
       syncSpoonFlowFeedHint(cfg);
     } else if (cfg.project === 'lamp') {
@@ -3273,6 +3290,26 @@
       cnShowProfMidCount(cfg.container.midCount);
     }
     syncPrinterCards();
+  }
+
+  // Brim base: says plainly when the "top layer" option can't do anything
+  // (it only differs from the bottom layer where the bend-spread gradient
+  // pushes the upper layers out past the lower ones).
+  function syncBsBrimBaseHint(cfg) {
+    const hint = $('bs_brimBaseHint');
+    if (!hint) return;
+    if (cfg.brim.base !== 'top') {
+      hint.textContent = '';
+      return;
+    }
+    const spread =
+      cfg.disc.legs.enabled && cfg.disc.attractor.enabled && cfg.disc.layers > 1;
+    hint.textContent = spread
+      ? 'The brim\'s first ring sits one line width outside the TOP layer\'s outline, flattened onto the bed, so ' +
+        'the spread-out, overhanging lines never land on it. Everywhere else the two outlines match, so it ' +
+        'looks the same there. It needs more than one layer to matter.'
+      : 'No effect with this setup — the top and bottom layers have the same outline unless legs, the bend-zone ' +
+        'spread and more than one layer are all on.';
   }
 
   // Live status for the foaming card: mode/layer mismatches (which the

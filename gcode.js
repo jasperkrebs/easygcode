@@ -3064,10 +3064,23 @@
       discSpecMemo = spec;
 
       let rawOuterLoop;
+      let rawBrimLoop = null;
       if (legs) {
         // Brim base: the outermost combined outline of the BOTTOM layer (the
         // brim hugs what actually prints first — unspread when gradient is on).
         rawOuterLoop = attrGrad ? discLoops(cfg, spec, 0).outline : dlRaw.outline;
+        // Optional: brim from the TOP layer's outline instead, projected down
+        // flat (just its X/Y). With the bend-spread gradient the top layer is
+        // the most spread, so in the spread zones it sits well outside the
+        // bottom layer — and the overhang there (the wall slants out, and with
+        // overhang drop it sinks back toward the bed) lands on a brim hugging
+        // the bottom outline, fusing to it. Brimming from the top outline
+        // keeps the first brim ring one line width clear of where the top
+        // layer actually reaches, so nothing lands on it. Where there's no
+        // spread the two outlines are identical, so nothing changes there.
+        // The bed fit below still centres on the bottom outline either way,
+        // so the part itself never shifts when this is toggled.
+        if (cfg.brim && cfg.brim.base === 'top') rawBrimLoop = dlRaw.outline;
       } else {
         // Outermost bead centerline circle doubles as the brim's base loop.
         const rOut = ringRadii[ringN - 1];
@@ -3086,7 +3099,13 @@
       bsShiftY = fit.shiftY;
 
       legLoops = dlRaw ? dlRaw.loops.map((lp) => lp.map(bsFit)) : null;
-      discOuterLoop = rawOuterLoop.map(bsFit);
+      discOuterLoop = (rawBrimLoop || rawOuterLoop).map(bsFit);
+      if (cfg.brim && cfg.brim.enabled && cfg.brim.base === 'top') {
+        lines.push(
+          '; brim base: TOP layer outline projected down' +
+            (rawBrimLoop && attrGrad ? '' : ' (no spread gradient here — identical to the bottom layer)')
+        );
+      }
 
       lines.push(
         '; bend stool bed-fit: rotated ' + BS_ROTATION_DEG + ' deg, bounding box ' + fit.width.toFixed(1) +
@@ -3912,7 +3931,12 @@
         lines.push('; --- brim (outer, far->near) ---');
         for (let k = brim.linesOuter; k >= 1; k--) {
           const d = brim.lineWidth / 2 + cfg.lineWidth / 2 + (k - 1) * brim.lineWidth;
-          const loop = Geo.offsetClosed(brimBase, d, dirSign);
+          // The top-layer base is a spread-out outline with tight concave
+          // notches; the plain per-vertex offset folds over itself there.
+          const loop =
+            isBS && brim.base === 'top'
+              ? Geo.offsetClosedTrim(brimBase, d, dirSign)
+              : Geo.offsetClosed(brimBase, d, dirSign);
           travelAbs({ x: loop[0].x + cx, y: loop[0].y + cy, z: brim.layerHeight });
           extrudeLoop(loop, brim.layerHeight, bArea, brimFeed);
           brimPrinted = true;
