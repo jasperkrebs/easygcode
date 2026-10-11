@@ -319,9 +319,15 @@
           customDiameter: num('ls_customDiameter'),
           customPitch: num('ls_customPitch'),
           fitTolerance: num('ls_fitTolerance'),
-          shape: ['cone', 'arcOut', 'arcIn', 'sphere'].indexOf($('ls_shape').value) >= 0 ? $('ls_shape').value : 'cone',
+          shape: ['cone', 'arcOut', 'arcIn', 'sphere', 'flatSphere'].indexOf($('ls_shape').value) >= 0 ? $('ls_shape').value : 'cone',
           maxAngle: Math.max(0, num('ls_maxAngle')),
           sphereDiameter: num('ls_sphereDiameter'),
+          flatRatio: num('ls_flatRatio'),
+          lip: {
+            enabled: $('ls_lipEnabled').checked,
+            length: Math.max(0, num('ls_lipLength')),
+            fillet: Math.max(0, num('ls_lipFillet')),
+          },
           throatLength: Math.max(0, num('ls_throatLength')),
           fillet: Math.max(0, num('ls_fillet')),
           bottomDiameter: num('ls_bottomDiameter'),
@@ -748,7 +754,11 @@
       }
       if (!Number.isFinite(cfg.lamp.maxAngle) || cfg.lamp.maxAngle < 0 || cfg.lamp.maxAngle > 89)
         return 'Max angle must be between 0 (uncapped) and 89 degrees.';
-      if (cfg.lamp.shape === 'sphere') {
+      if (cfg.lamp.shape === 'flatSphere' && !(cfg.lamp.flatRatio > 0 && cfg.lamp.flatRatio <= 1))
+        return 'Flatness (height ÷ width) must be above 0 and at most 1.';
+      if (cfg.lamp.lip.enabled && (!Number.isFinite(cfg.lamp.lip.length) || !Number.isFinite(cfg.lamp.lip.fillet)))
+        return 'Enter a valid lip length and fillet radius.';
+      if (cfg.lamp.shape === 'sphere' || cfg.lamp.shape === 'flatSphere') {
         if (!isPos(cfg.lamp.sphereDiameter)) return 'Enter a valid sphere diameter.';
         if (cfg.lamp.sphereDiameter <= cfg.lamp.bottomDiameter)
           return 'Sphere diameter must be larger than the bottom opening.';
@@ -1437,7 +1447,7 @@
     }
     const innerD = thread.diameter + (ls.fitTolerance || 0);
     const rThroat = (innerD + cfg.lineWidth) / 2;
-    if (ls.shape === 'sphere' && !(ls.sphereDiameter / 2 > rThroat)) {
+    if ((ls.shape === 'sphere' || ls.shape === 'flatSphere') && !(ls.sphereDiameter / 2 > rThroat)) {
       $('ls_hint').textContent = 'Sphere diameter must be larger than the throat (⌀' + (rThroat * 2).toFixed(1) + ' mm).';
       $('ls_compHint').textContent = '';
       $('ls_flowFeedHint').textContent = '';
@@ -1452,6 +1462,8 @@
       shape: ls.shape,
       maxAngle: ((ls.maxAngle || 0) * Math.PI) / 180,
       sphereRadius: (ls.sphereDiameter || 0) / 2,
+      flatRatio: ls.flatRatio > 0 ? Math.min(1, ls.flatRatio) : 0.5,
+      lip: ls.lip,
     });
     let pts = prof.pts;
     if (ls.orientation === 'wide') pts = window.Geo.flipLampProfile(pts);
@@ -1463,9 +1475,17 @@
     $('ls_hint').textContent =
       'Throat inner ⌀' + innerD.toFixed(2) + ' mm on a ⌀' + thread.diameter + ' × ' + thread.pitch +
       ' mm thread · layer height locked to ' + thread.pitch + ' mm (the pitch) · wall reaches ' +
-      coneDeg.toFixed(1) + '° from vertical (' + joinDeg.toFixed(1) + '° where it leaves the throat) · ⌀' +
-      widest.toFixed(0) + ' at its widest · total height ' + totalH.toFixed(1) + ' mm' +
-      (Math.abs(prof.fillet - ls.fillet) > 0.05 ? ' · fillet clamped to ' + prof.fillet.toFixed(1) + ' mm' : '');
+      coneDeg.toFixed(1) + '° from vertical (' + joinDeg.toFixed(1) + '° where it leaves the throat' +
+      (prof.lip ? ', ' + ((Math.abs(prof.lip.joinAngle) * 180) / Math.PI).toFixed(1) + '° where it meets the lip' : '') +
+      ') · ⌀' + widest.toFixed(0) + ' at its widest · total height ' + totalH.toFixed(1) + ' mm' +
+      (ls.shape === 'flatSphere'
+        ? ' · full ellipsoid ' + ls.sphereDiameter + ' × ' + (ls.sphereDiameter * Math.min(1, ls.flatRatio > 0 ? ls.flatRatio : 0.5)).toFixed(1) + ' mm'
+        : '') +
+      (prof.lip ? ' · straight lip ' + prof.lip.length + ' mm (fillet ' + prof.lip.fillet.toFixed(1) + ' mm)' : '') +
+      (Math.abs(prof.fillet - ls.fillet) > 0.05 ? ' · fillet clamped to ' + prof.fillet.toFixed(1) + ' mm' : '') +
+      (prof.lip && Math.abs(prof.lip.fillet - (ls.lip.fillet > 0 ? ls.lip.fillet : ls.fillet)) > 0.05
+        ? ' · lip fillet clamped to ' + prof.lip.fillet.toFixed(1) + ' mm'
+        : '');
 
     // Compensation read-out: the resulting bead width / layer rise at the
     // steepest point, plus the support ratio (how much of each bead lands on
@@ -1553,7 +1573,14 @@
     });
 
     // Mark the straight throat — the part that actually grips the socket.
-    const throatPts = pts.filter((p) => Math.abs(p.a) < 1e-9);
+    // A lip is vertical too (a = 0), so limit this to the throat's own height
+    // band: [0, filletZ0] as built, or mirrored when the shade is flipped.
+    const zEps = 1e-9;
+    const throatPts = pts.filter(
+      (p) =>
+        Math.abs(p.a) < 1e-9 &&
+        (ls.orientation === 'wide' ? p.z >= totalH - prof.filletZ0 - zEps : p.z <= prof.filletZ0 + zEps)
+    );
     if (throatPts.length > 1) {
       ctx.strokeStyle = '#2bd9a0';
       ctx.lineWidth = 3.5 * sf;
@@ -3297,6 +3324,7 @@
     } else if (cfg.project === 'lamp') {
       showLampSocketParams(cfg.lamp.socket);
       showLampShapeParams(cfg.lamp.shape);
+      $('ls_lipFields').hidden = !cfg.lamp.lip.enabled;
     } else if (cfg.project === 'container') {
       cnShowProfMidCount(cfg.container.midCount);
     }
@@ -4056,6 +4084,7 @@
     $('ls_flowFeedFields').hidden = !$('ls_flowFeedEnabled').checked;
     showLampSocketParams($('ls_socket').value);
     showLampShapeParams($('ls_shape').value);
+    $('ls_lipFields').hidden = !$('ls_lipEnabled').checked;
     $('th_brimFields').hidden = !$('th_brimEnabled').checked;
     $('sd_flowFeedFields').hidden = !$('sd_flowFeedEnabled').checked;
     showProfMidCount(num('ve_profMidCount'));
@@ -4443,6 +4472,11 @@
 
   $('ls_flowFeedEnabled').addEventListener('change', () => {
     $('ls_flowFeedFields').hidden = !$('ls_flowFeedEnabled').checked;
+    updateShapeUI();
+  });
+
+  $('ls_lipEnabled').addEventListener('change', () => {
+    $('ls_lipFields').hidden = !$('ls_lipEnabled').checked;
     updateShapeUI();
   });
 

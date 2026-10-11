@@ -1655,6 +1655,43 @@
     return pts;
   }
 
+  // A FLAT sphere (UFO): an oblate ellipsoid of revolution, r = A cos t,
+  // z = B sin t with B = ratio * A — `ratio` is the height-to-width of the
+  // FULL ellipsoid (1 = a sphere, 0.5 = half as tall as it is wide). The
+  // throat and the opening cut it exactly as they cut the sphere. Wall angle
+  // from vertical, signed like the other flares: a = -atan((A/B) tan t), so it
+  // is horizontal-ish at the poles and vertical at the rim — and the flatter
+  // the ellipsoid, the closer to horizontal the wall leaves the throat and the
+  // tighter the turn at the rim (profile radius of curvature B^2/A there).
+  // Sampled adaptively off a dense parametric walk — at most FLARE_STEP of
+  // wall angle OR ~2 mm of arc between points, whichever comes first —
+  // because for a flat shape uniform steps in t put the angle changes (which
+  // the extrusion compensation reads) in a few huge strides near the rim.
+  function flareFlatSphere(rThroat, rOpening, rWide, ratio) {
+    const A = rWide;
+    const B = A * Math.max(0.02, Math.min(1, ratio));
+    const t1 = -Math.acos(Math.max(-1, Math.min(1, rThroat / A)));
+    const t2 = Math.acos(Math.max(-1, Math.min(1, rOpening / A)));
+    const z0 = B * Math.sin(t1);
+    const ptAt = (t) => ({
+      r: A * Math.cos(t),
+      z: B * Math.sin(t) - z0,
+      a: -Math.atan((A / B) * Math.tan(t)),
+    });
+    const N = 4000;
+    const out = [ptAt(t1)];
+    let last = out[0];
+    for (let i = 1; i <= N; i++) {
+      const p = ptAt(t1 + ((t2 - t1) * i) / N);
+      const ds = Math.hypot(p.r - last.r, p.z - last.z);
+      if (i === N || Math.abs(p.a - last.a) >= FLARE_STEP || ds >= 2) {
+        out.push(p);
+        last = p;
+      }
+    }
+    return out;
+  }
+
   // Blend a flare onto the vertical throat with a tangent arc of radius F.
   // Generic over the curve: a circle of radius F tangent to the throat wall
   // has its centre at rThroat + F, so the blend point is wherever the curve
@@ -1722,6 +1759,7 @@
     }
     else if (shape === 'arcIn') flare = flareArcIn(rThroat, rBottom, transitionH);
     else if (shape === 'sphere') flare = flareSphere(rThroat, rBottom, p.sphereRadius);
+    else if (shape === 'flatSphere') flare = flareFlatSphere(rThroat, rBottom, p.sphereRadius, p.flatRatio);
     else flare = flareCone(rThroat, rBottom, transitionH);
 
     // Blend onto the throat, shrinking the fillet if it is too big to touch
@@ -1741,6 +1779,67 @@
       warnings.push('Fillet radius is too large for this shade shape — clamped to ' + F.toFixed(1) + 'mm.');
     }
 
+    // Optional straight LIP at the far end — the mirror image of the throat:
+    // instead of the surface just being cut off where it reaches the opening
+    // (steeply leaning inward there — an overhang), a tangent fillet turns it
+    // back to a vertical wall at the opening's own radius, and a straight
+    // section carries on from there. Built by mirroring the end of the curve
+    // and reusing the throat's own blend: flipped top-to-bottom, the curve
+    // leaves the lip radius as an ordinary outward flare, which is exactly
+    // what filletFlare blends onto a vertical wall. Only for the shapes that
+    // curl inward at the opening (the two spheres) — the others already end
+    // flaring outward or vertical.
+    let curve = blend.curve;
+    let lipFillet = 0;
+    let lipAngle = null;
+    let lipLength = 0;
+    const lipOn = !!(p.lip && p.lip.enabled) && (shape === 'sphere' || shape === 'flatSphere');
+    if (lipOn) {
+      lipLength = Math.max(0, p.lip.length || 0);
+      const zTop = curve[curve.length - 1].z;
+      const rev = curve
+        .slice()
+        .reverse()
+        .map((q) => ({ r: q.r, z: zTop - q.z, a: -q.a }));
+      // 0 = same fillet as the throat's (as requested, before any clamping
+      // that one needed for its own end of the curve).
+      lipFillet = p.lip.fillet > 0 ? p.lip.fillet : Math.max(0, p.fillet || 0);
+      let lb = filletFlare(rev, rBottom, lipFillet);
+      if (!lb) {
+        let lo = 0;
+        let hi = lipFillet;
+        for (let i = 0; i < 40; i++) {
+          const mid = (lo + hi) / 2;
+          if (filletFlare(rev, rBottom, mid)) lo = mid;
+          else hi = mid;
+        }
+        lipFillet = lo;
+        lb = filletFlare(rev, rBottom, lipFillet) || { fillet: [], curve: rev, angle: rev[0].a };
+        warnings.push('Lip fillet radius is too large for this shade — clamped to ' + lipFillet.toFixed(1) + 'mm.');
+      }
+      lipAngle = lb.angle;
+      // Surviving part of the shade curve, back in print orientation and
+      // order (the mirror's far end is the throat side).
+      const keep = lb.curve
+        .slice()
+        .reverse()
+        .map((q) => ({ r: q.r, z: zTop - q.z, a: -q.a }));
+      curve = keep;
+      if (lb.fillet.length) {
+        // Arc from the blend point down to the vertical tangent point, then
+        // the straight lip (mirror frame z' -> print frame zTop - z').
+        for (let i = lb.fillet.length - 1; i >= 0; i--) {
+          const q = lb.fillet[i];
+          if (i === lb.fillet.length - 1) continue; // already the blend point
+          curve.push({ r: q.r, z: zTop - q.z, a: -q.a });
+        }
+        const tan = lb.fillet[0];
+        if (lipLength > 1e-9) curve.push({ r: tan.r, z: zTop - tan.z + lipLength, a: 0 });
+      } else if (lipLength > 1e-9) {
+        curve.push({ r: rBottom, z: zTop + lipLength, a: 0 });
+      }
+    }
+
     const pts = [{ r: rThroat, z: 0, a: 0 }];
     const zJoin = throatLen;
     if (throatLen > 1e-9) pts.push({ r: rThroat, z: throatLen, a: 0 });
@@ -1757,7 +1856,7 @@
     const filletZ0 = zJoin;
     const filletZ1 = blend.fillet.length ? blend.fillet[blend.fillet.length - 1].z + shift : zJoin;
     const cShift = blend.fillet.length ? shift : zJoin;
-    blend.curve.forEach((q, i) => {
+    curve.forEach((q, i) => {
       if (i === 0 && blend.fillet.length) return; // already the fillet's top point
       pts.push({ r: q.r, z: q.z + cShift, a: q.a });
     });
@@ -1770,6 +1869,7 @@
       pts: pts,
       angle: maxA,
       joinAngle: blend.angle,
+      lip: lipOn ? { fillet: lipFillet, length: lipLength, joinAngle: lipAngle } : null,
       fillet: F,
       filletZ0: filletZ0,
       filletZ1: filletZ1,

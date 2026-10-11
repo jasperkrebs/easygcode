@@ -1098,6 +1098,7 @@
               <option value="arcOut">Arc — flares outward (bell)</option>
               <option value="arcIn">Arc — turns out, curls back (dome)</option>
               <option value="sphere">Sphere</option>
+              <option value="flatSphere">Flat sphere (UFO)</option>
             </select>
           </div>
           <div class="field"><label>Throat length (mm, straight section)</label><input type="number" id="ls_throatLength" value="20" min="0" step="1" /></div>
@@ -1110,8 +1111,20 @@
         <div class="lamp-shape-params grid" data-shape="arcOut" hidden>
           <div class="field"><label>Max angle (°, 0 = uncapped)</label><input type="number" id="ls_maxAngle" value="0" min="0" max="89" step="5" /></div>
         </div>
-        <div class="lamp-shape-params grid" data-shape="sphere" hidden>
-          <div class="field"><label>Sphere ⌀ (mm)</label><input type="number" id="ls_sphereDiameter" value="200" min="1" step="5" /></div>
+        <div class="lamp-shape-params grid" data-shape="sphere flatSphere" hidden>
+          <div class="field"><label>Sphere ⌀ (mm, at its widest)</label><input type="number" id="ls_sphereDiameter" value="200" min="1" step="5" /></div>
+        </div>
+        <div class="lamp-shape-params grid" data-shape="flatSphere" hidden>
+          <div class="field"><label>Flatness: height ÷ width of the full ellipsoid (1 = sphere)</label><input type="number" id="ls_flatRatio" value="0.5" min="0.05" max="1" step="0.05" /></div>
+        </div>
+        <div class="lamp-shape-params" data-shape="sphere flatSphere" hidden>
+          <div class="field">
+            <label class="toggle"><input type="checkbox" id="ls_lipEnabled" /> straight lip at the opening (a fillet turns the wall vertical again — no overhang)</label>
+          </div>
+          <div id="ls_lipFields" class="grid" hidden>
+            <div class="field"><label>Lip length (mm, straight section)</label><input type="number" id="ls_lipLength" value="10" min="0" step="1" /></div>
+            <div class="field"><label>Lip fillet radius (mm, 0 = same as the throat fillet)</label><input type="number" id="ls_lipFillet" value="0" min="0" step="1" /></div>
+          </div>
         </div>
         <div class="grid">
           <div class="field">

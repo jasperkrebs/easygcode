@@ -458,7 +458,7 @@ keep **fully independent settings** per project:
   so it's correct in both print orientations.
   The profile is a **revolve curve in r/z**: a straight **throat** (the length given is
   the full-diameter section that actually grips — the fillet is added *above* it rather
-  than eating into it), a tangent-arc **fillet**, then one of four **shade shapes** out to
+  than eating into it), a tangent-arc **fillet**, then one of five **shade shapes** out to
   the **bottom opening ⌀**. It's carried as a dense `(r, z, angle)` polyline rather than
   an analytic description, so a new shape only has to produce that polyline — nothing
   downstream needs to know which shape made it. **Print orientation** picks throat-down or
@@ -480,6 +480,27 @@ keep **fully independent settings** per project:
     above the throat, vertical at the equator, and steepens again as it closes — a small
     opening pushes the closing overhang past 80°, so it's the shape most worth testing
     the machine's limits with.
+  - **Flat sphere (UFO)** — the sphere's squashed cousin: an *oblate ellipsoid* whose
+    **flatness** is the full ellipsoid's **height ÷ width** (1 = a true sphere, 0.5 = twice
+    as wide as tall, down to 0.05 for a flying saucer). **Sphere ⌀** is its widest diameter.
+    The same two holes are cut out of it (throat and bottom opening), and the same fillet
+    machinery applies. The wall angle is `atan((A/B)·tan t)` for semi-axes A (wide) and B
+    (tall), so flattening it makes the wall *steeper* where it leaves the throat and the
+    whole shade shorter — the shape is sampled in wall angle and arc length, not in `t`,
+    so the near-vertical stretches stay smooth however flat it gets.
+  - **Lip (sphere and flat sphere)** — an optional straight wall at the bottom opening.
+    Without it the shade just stops where the ellipsoid meets the opening, which on a
+    sphere leaves the final revolutions overhanging at 75°+. With it on, the wall **leaves
+    the ellipsoid through a fillet and returns to vertical**, then runs straight for the
+    **lip length** — zero overhang on the lip itself. It is the throat's fillet mirrored:
+    the end of the curve is flipped so it leaves the opening radius as an outward flare, the
+    same generic fillet routine blends it onto a vertical wall at that radius, and it is
+    flipped back. The lip's radius is the **bottom opening ⌀**. The **lip fillet** is its own
+    input; **0 = reuse the throat fillet** (so by default both ends are rounded alike), and a
+    fillet too big for the shade is clamped with a warning. The live hint reports the
+    steepest wall angle for the current settings, plus the angle where the shade meets
+    the lip, so you can see what the fillet actually bought you. The cone and the arcs ignore
+    the lip — they already reach the opening at a gentle angle, or are meant to end open.
 
   The **fillet is generic over the curve**, not a closed form per shape: a circle of
   radius F tangent to the throat wall has its centre at `rThroat + F`, so the blend point
@@ -1179,9 +1200,11 @@ above), turns, start radius, stick length, layers, layer height, line width, pri
 travel feed, bed center X/Y — no shape, pattern, brim, or hanger options.
 
 The **Lampshade** tab: printer & material (identical fields to above), socket
-(E14/E27/custom), fit tolerance, shade shape (cone / bell / dome / sphere) and its own
-parameter (transition height, max angle, or sphere ⌀), throat length, fillet radius,
-bottom opening ⌀, print orientation, line width, print feed, travel feed, chord
+(E14/E27/custom), fit tolerance, shade shape (cone / bell / dome / sphere / flat sphere) and
+its own parameter (transition height, max angle, or sphere ⌀ — plus flatness for the flat
+sphere), throat length, fillet radius, bottom opening ⌀, an optional straight lip at that
+opening (length and its own fillet, 0 = same as the throat's) on the two spheres, print
+orientation, line width, print feed, travel feed, chord
 tolerance, bed center X/Y, overhang compensation mode/strength/max multiplier, an optional
 constant-volumetric-flow targets for throat and shade plus their ramp height, and an
 outer-only brim — **no layer height**, which is
