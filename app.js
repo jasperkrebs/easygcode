@@ -212,6 +212,7 @@
               lineWidth: num('bs_primer1Width'),
               layerHeight: num('bs_primer1LayerHeight'),
               feed: num('bs_primer1Feed'),
+              flow: Math.max(0, num('bs_primer1Flow')),
             },
             primer2: {
               length: num('bs_primer2Length'),
@@ -219,6 +220,7 @@
               lineWidth: num('bs_primer2Width'),
               layerHeight: num('bs_primer2LayerHeight'),
               feed: num('bs_primer2Feed'),
+              flow: Math.max(0, num('bs_primer2Flow')),
             },
           },
           flowFeed: {
@@ -603,7 +605,12 @@
           return 'Exit-foam cooldown must be 0 (off) or a temperature in °C.';
         for (const key of ['primer1', 'primer2']) {
           const pr = fm[key];
-          if (!isPos(pr.length) || !isPos(pr.lineWidth) || !isPos(pr.layerHeight) || !isPos(pr.feed)) {
+          if (!Number.isFinite(pr.flow)) {
+            return 'Enter a valid ' + (key === 'primer1' ? 'enter-foam' : 'exit-foam') +
+              ' primer flow (mm³/s, 0 = use the feed).';
+          }
+          // The feed only matters while the flow is 0.
+          if (!isPos(pr.length) || !isPos(pr.lineWidth) || !isPos(pr.layerHeight) || (!isPos(pr.feed) && !(pr.flow > 0))) {
             return 'Enter valid ' + (key === 'primer1' ? 'enter-foam' : 'exit-foam') +
               ' primer length/line width/layer height/feed.';
           }
@@ -3375,7 +3382,25 @@
     $('bs_foamHint').textContent =
       'Speed follows extrusion to keep flow constant: ' + fm.extrusionPct + '% extrusion → ' +
       speedPct + '% speed (M220/M221). Both primers always print at 100%/100%.' +
-      (cfg.printer.mode === 'pellet' ? exitFoamHint(cfg) : '');
+      (cfg.printer.mode === 'pellet' ? exitFoamHint(cfg) : '') + primerSpeedHint(fm);
+  }
+
+  // Both ways round for each primer, so the flow <-> feed conversion never has
+  // to be done by hand: whichever one is being used, the other is shown too.
+  // Uses the primer's OWN bead area (its line width x layer height).
+  function primerSpeedHint(fm) {
+    const part = (name, pr) => {
+      if (!isPos(pr.lineWidth) || !isPos(pr.layerHeight)) return null;
+      const area = window.GcodeGen.beadArea(pr.lineWidth, pr.layerHeight);
+      if (pr.flow > 0) return name + ' ' + pr.flow + ' mm³/s → ' + ((pr.flow * 60) / area).toFixed(0) + ' mm/min';
+      if (isPos(pr.feed)) return name + ' ' + pr.feed + ' mm/min → ' + ((pr.feed * area) / 60).toFixed(2) + ' mm³/s';
+      return null;
+    };
+    const a = part('enter', fm.primer1);
+    const b = part('exit', fm.primer2);
+    return a || b
+      ? ' Primer speeds (bead area from each primer\'s own line width × layer height): ' + [a, b].filter(Boolean).join(' · ') + '.'
+      : '';
   }
 
   // What the exit transition will actually do, in order — so the cooldown and
