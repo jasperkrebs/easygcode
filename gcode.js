@@ -884,9 +884,10 @@
     if (!(rBottom > 0)) return bail('Enter a valid bottom opening diameter.');
     if (!(ls.transitionHeight > 0)) return bail('Enter a valid transition height.');
 
-    const shape = ['cone', 'arcOut', 'arcIn', 'sphere'].indexOf(ls.shape) >= 0 ? ls.shape : 'cone';
+    const shape = ['cone', 'arcOut', 'arcIn', 'sphere', 'flatSphere'].indexOf(ls.shape) >= 0 ? ls.shape : 'cone';
     const rSphere = (ls.sphereDiameter || 0) / 2;
-    if (shape === 'sphere') {
+    const flatRatio = ls.flatRatio > 0 ? Math.min(1, ls.flatRatio) : 0.5;
+    if (shape === 'sphere' || shape === 'flatSphere') {
       if (!(rSphere > rThroat)) return bail('Sphere diameter must be larger than the throat.');
       if (!(rSphere > rBottom)) return bail('Sphere diameter must be larger than the bottom opening.');
     }
@@ -899,6 +900,8 @@
       shape: shape,
       maxAngle: ((ls.maxAngle || 0) * Math.PI) / 180,
       sphereRadius: rSphere,
+      flatRatio: flatRatio,
+      lip: ls.lip,
     });
     prof.warnings.forEach((w) => warnings.push(w));
 
@@ -1045,9 +1048,15 @@
     );
     lines.push(
       '; shape=' + shape + ' throat=' + (ls.throatLength || 0) +
-        (shape === 'sphere' ? ' sphereDia=' + (ls.sphereDiameter || 0) : ' transition=' + ls.transitionHeight) +
+        (shape === 'sphere' || shape === 'flatSphere'
+          ? ' sphereDia=' + (ls.sphereDiameter || 0) + (shape === 'flatSphere' ? ' heightRatio=' + flatRatio : '')
+          : ' transition=' + ls.transitionHeight) +
         ' fillet=' + prof.fillet.toFixed(1) + ' bottomDia=' + (ls.bottomDiameter || 0) +
-        ' totalHeight=' + H.toFixed(2)
+        ' totalHeight=' + H.toFixed(2) +
+        (prof.lip
+          ? ' lip=' + prof.lip.length + 'mm straight, lip fillet=' + prof.lip.fillet.toFixed(1) + 'mm' +
+            (prof.lip.joinAngle != null ? ' (leaves the shade at ' + ((Math.abs(prof.lip.joinAngle) * 180) / Math.PI).toFixed(1) + ' deg)' : '')
+          : '')
     );
     lines.push(
       '; layerHeight=' + lh + ' (= thread pitch) lineWidth=' + lwBase +
