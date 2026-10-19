@@ -592,6 +592,19 @@ keep **fully independent settings** per project:
   instead of separate fields, and the generator itself reads both straight off the base's own
   config, ignoring any stale value that might otherwise linger on the lid's side — not just a
   UI convenience, a hard guarantee they can never drift apart.
+  The flat **spiral discs** — the base's bottom and the lid's top — can have their own
+  **disc layer height** and **disc line width** (both 0 = the same as the wall, which keeps
+  the G-code byte-identical to before). The disc prints with them: its ring spacing, its own
+  layer height on the bed, its own bead. Up each fillet the bead then eases from the disc's
+  into the wall's along a smoothstep of the fillet's height, read at the middle of *every*
+  segment — so it changes point by point within each revolution, not in steps from one
+  revolution to the next: the fillet's layer spacing (each natural dz takes the layer height
+  halfway up its step, then the usual rescale to land exactly on the fillet's top), each
+  segment's extrusion (its own bead area), and its speed when **constant volumetric flow** is
+  on — the container (base and lid each) now has that option too, like the other tabs, so the
+  disc, the fillet and the wall all run at the same mm³/s with the feed following each
+  segment's bead. With a constant feed only the extrusion follows. Like the layer height and
+  line width, the lid takes the disc settings from the base.
 
 - **Thread** — a nut-like connector that screws onto a standard **ISO metric bolt or
   threaded rod** (M2–M64, coarse pitch, picked from a dropdown), printed as one plain
