@@ -605,6 +605,13 @@ keep **fully independent settings** per project:
   disc, the fillet and the wall all run at the same mm³/s with the feed following each
   segment's bead. With a constant feed only the extrusion follows. Like the layer height and
   line width, the lid takes the disc settings from the base.
+  The lid's **top** can be the plain ring fill or a **salt & pepper** top: the Spiral disc
+  tab's disc (its turns spreading apart around a ring of holes and wiggling so neighbouring
+  turns still touch — same ring radius / spacing / band / falloff / bumps settings), printed
+  from the centre out with the disc's bead. A spiral snapped to whole turns ends *near* the
+  flat top's edge, so it's stretched a hair (every turn alike; the hint says by how much) to
+  end exactly *on* it, and turned (mirrored for a clockwise print) so it ends on the seam,
+  where the fillet starts — no step out to the fillet at any line width.
 
 - **Thread** — a nut-like connector that screws onto a standard **ISO metric bolt or
   threaded rod** (M2–M64, coarse pitch, picked from a dropdown), printed as one plain

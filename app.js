@@ -462,6 +462,16 @@
           straightHeight: num('cnl_straightHeight'),
           fillet: Math.max(0, num('cnl_fillet')),
           fitTolerance: num('cnl_fitTolerance'),
+          // Plain ring fill, or the salt & pepper top: the spiral disc with a ring of holes.
+          top: $('cnl_top').value === 'holes' ? 'holes' : 'plain',
+          holes: {
+            ringRadius: num('cnl_holeRing'),
+            maxSpacingPct: num('cnl_holeSpacing'),
+            fullBand: num('cnl_holeBand'),
+            falloffIn: num('cnl_holeFalloffIn'),
+            falloffOut: num('cnl_holeFalloffOut'),
+            bumps: Math.round(num('cnl_holeBumps')),
+          },
         },
       };
     }
@@ -880,6 +890,13 @@
       }
       if (!Number.isFinite(lid.centerX) || !Number.isFinite(lid.centerY)) return 'Enter valid lid bed center X/Y.';
       if (lid.flowFeed.enabled && !isPos(lid.flowFeed.rate)) return 'Enter a valid lid target volumetric flow (mm³/s).';
+      if (lid.top === 'holes') {
+        const h = lid.holes;
+        if (!(h.ringRadius >= 0)) return 'The ring of holes needs a radius of 0 or more.';
+        if (!(h.maxSpacingPct >= 100)) return 'Spacing at the ring must be 100% (no holes) or more.';
+        if (!(h.fullBand >= 0) || !(h.falloffIn >= 0) || !(h.falloffOut >= 0)) return 'The band and the falloffs must be 0 or more.';
+        if (!(h.bumps >= 1)) return 'Bumps per turn must be 1 or more.';
+      }
       if (!(lid.fillet >= 0)) return 'Lid fillet height must be 0 or more.';
       if (!Number.isFinite(lid.fitTolerance)) return 'Enter a valid lid fit tolerance.';
       if (!(cn.radius + cn.lineWidth + lid.fitTolerance > 0))
@@ -3349,7 +3366,9 @@
       cnShowProfMidCount(cfg.container.midCount);
       $('cn_flowFeedFields').hidden = !cfg.container.flowFeed.enabled;
       $('cnl_flowFeedFields').hidden = !cfg.lid.flowFeed.enabled;
+      $('cnl_holeFields').hidden = cfg.lid.top !== 'holes';
       syncContainerBeadHints(cfg);
+      syncLidHolesHint(cfg);
     }
     syncPrinterCards();
   }
@@ -3759,6 +3778,33 @@
     });
   }
 
+  // The salt & pepper lid's holes, in the Spiral disc tab's terms: how many turns, how many
+  // open up around the ring, the widest spacing and wiggle, and how well the wiggles meet.
+  function syncLidHolesHint(cfg) {
+    const hint = $('cnl_holeHint');
+    const cn = cfg.container;
+    const lid = cfg.lid;
+    const lw = cn.discLineWidth > 0 ? cn.discLineWidth : cn.lineWidth;
+    const radius = cn.radius + cn.lineWidth + (lid.fitTolerance || 0);
+    const rFlat = radius - Math.max(0, lid.fillet || 0);
+    if (lid.top !== 'holes' || !isPos(lw) || !isPos(rFlat) || rFlat / lw > 4000) {
+      hint.textContent = '';
+      return;
+    }
+    const spec = window.GcodeGen.spiralDiscSpec(Object.assign({}, lid.holes, { outerRadius: rFlat, lineWidth: lw, attractorRadius: lid.holes.ringRadius, maxSpacingPct: lid.holes.maxSpacingPct, tolerance: lid.tolerance }));
+    hint.textContent =
+      spec.turns + ' turns out to the fillet at r = ' + rFlat.toFixed(2) + ' mm (stretched ' +
+      ((rFlat / spec.rEnd - 1) * 100).toFixed(1) + '% from ' + spec.rEnd.toFixed(2) + ' to end right on it) · ' +
+      spec.openTurns + ' open turn' + (spec.openTurns === 1 ? '' : 's') + ' · widest spacing ' + spec.maxPitch.toFixed(2) +
+      ' mm · ' + spec.bumps + ' bumps per turn' + (spec.bumpsAdjusted ? ' (rounded up to odd)' : '') +
+      (spec.openTurns > 0
+        ? ' · wiggle up to ±' + spec.maxAmp.toFixed(2) + ' mm' +
+          (spec.meetOverlap > 0.02 || spec.meetGap > 0.02
+            ? ' · peaks meet dips within ' + spec.meetOverlap.toFixed(2) + ' mm (falloff too short to close every gap exactly)'
+            : ' · peaks meet dips at exactly one line width')
+        : '');
+  }
+
   function syncSpoonFlowFeedHint(cfg) {
     if (!isPos(cfg.lineWidth) || !isPos(cfg.layerHeight)) {
       $('sp_flowFeedHint').textContent = '';
@@ -4146,6 +4192,7 @@
     $('sd_flowFeedFields').hidden = !$('sd_flowFeedEnabled').checked;
     $('cn_flowFeedFields').hidden = !$('cn_flowFeedEnabled').checked;
     $('cnl_flowFeedFields').hidden = !$('cnl_flowFeedEnabled').checked;
+    $('cnl_holeFields').hidden = $('cnl_top').value !== 'holes';
     showProfMidCount(num('ve_profMidCount'));
     showVesselBottomStyle($('ve_seamStyle').value);
     showVesselTopShape($('ve_topShape').value);
@@ -4551,6 +4598,11 @@
 
   $('cnl_flowFeedEnabled').addEventListener('change', () => {
     $('cnl_flowFeedFields').hidden = !$('cnl_flowFeedEnabled').checked;
+    updateShapeUI();
+  });
+
+  $('cnl_top').addEventListener('change', () => {
+    $('cnl_holeFields').hidden = $('cnl_top').value !== 'holes';
     updateShapeUI();
   });
 

@@ -1402,6 +1402,32 @@
       </section>
 
       <section class="card" data-project="container" data-container-part="lid" hidden>
+        <h2>Lid top</h2>
+        <div class="grid">
+          <div class="field">
+            <label>Top</label>
+            <select id="cnl_top">
+              <option value="plain">Plain (ring fill)</option>
+              <option value="holes">Salt &amp; pepper holes (spiral disc)</option>
+            </select>
+          </div>
+        </div>
+        <div id="cnl_holeFields" class="grid" hidden>
+          <div class="field"><label>Ring of holes, radius (mm)</label><input type="number" id="cnl_holeRing" value="12" min="0" step="1" /></div>
+          <div class="field"><label>Spacing at the ring (% of line width)</label><input type="number" id="cnl_holeSpacing" value="250" min="100" step="10" /></div>
+          <div class="field"><label>Full-spacing band (mm, total, centred on the ring)</label><input type="number" id="cnl_holeBand" value="0" min="0" step="1" /></div>
+          <div class="field"><label>Falloff inside (mm)</label><input type="number" id="cnl_holeFalloffIn" value="6" min="0" step="1" /></div>
+          <div class="field"><label>Falloff outside (mm)</label><input type="number" id="cnl_holeFalloffOut" value="6" min="0" step="1" /></div>
+          <div class="field"><label>Bumps per turn (odd)</label><input type="number" id="cnl_holeBumps" value="9" min="1" step="2" /></div>
+        </div>
+        <p class="hint" id="cnl_holeHint"></p>
+        <p class="hint">Salt &amp; pepper: the lid's top is the Spiral disc tab's disc — its turns spread apart
+          around a ring and wiggle so neighbouring turns still touch, leaving holes in between — printed from
+          the centre out with the disc's own bead (Disc line width / layer height on the base). It ends exactly
+          on the fillet's foot at the seam, so the line runs straight on into the fillet and the skirt.</p>
+      </section>
+
+      <section class="card" data-project="container" data-container-part="lid" hidden>
         <h2>Print settings (lid)</h2>
         <p class="hint" id="cnl_inheritedHint">Layer height and line width always match the
           base — mismatched pitch or wall thickness would keep the two vase-mode "threads"
