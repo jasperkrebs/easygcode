@@ -2571,10 +2571,60 @@
     const flatScale = Math.max(0, 1 - Fscale);
     const flatBase = base.map((p) => ({ x: p.x * flatScale, y: p.y * flatScale }));
     let flatPoly = null;
-    if (flatScale > 1e-6) {
+    let holes = null;
+    if (flatScale > 1e-6 && lid.top === 'holes') {
+      // The salt & pepper top: the Spiral disc tab's disc — turns spreading apart around a
+      // ring, their wiggles meeting so the gaps between them become the holes — from the
+      // centre out. Snapped to whole turns it ends near the flat top's edge, not on it, so it
+      // is stretched a hair (every turn alike) to end exactly on it, and turned (mirrored for
+      // a clockwise print) so that end is the seam, where the fillet starts: one continuous
+      // line with no step out to the fillet.
+      const hs = lid.holes || {};
+      const seam = flatBase[0];
+      const rFlat = Math.hypot(seam.x, seam.y);
+      holes = spiralDiscSpec({
+        outerRadius: rFlat,
+        lineWidth: disc.lw,
+        attractorRadius: hs.ringRadius,
+        maxSpacingPct: hs.maxSpacingPct,
+        fullBand: hs.fullBand,
+        falloffIn: hs.falloffIn,
+        falloffOut: hs.falloffOut,
+        bumps: hs.bumps,
+        tolerance: tol,
+      });
+      const k = holes.rEnd > 1e-9 ? rFlat / holes.rEnd : 1;
+      const c = Math.cos(Math.atan2(seam.y, seam.x));
+      const s = Math.sin(Math.atan2(seam.y, seam.x));
+      flatPoly = holes.pts.map((p) => {
+        const x = p.x * k;
+        const y = p.y * k * dirSign;
+        return { x: x * c - y * s, y: x * s + y * c };
+      });
+      flatPoly[flatPoly.length - 1] = { x: seam.x, y: seam.y };
+      holes.stretch = k;
+      if (holes.bumpsAdjusted) {
+        warnings.push('Bumps per turn must be odd so a peak always faces the next turn\'s dip — using ' + holes.bumps + '.');
+      }
+      // As in EasyCAD: a quarter of a line of extra squish (or gap) is worth a word.
+      if (holes.meetOverlap > 0.25 * disc.lw || holes.meetGap > 0.25 * disc.lw) {
+        warnings.push(
+          'The holes\' falloff is too short for every wiggle to meet exactly (peaks meet dips within -' +
+            holes.meetOverlap.toFixed(2) + '/+' + holes.meetGap.toFixed(2) + ' mm of one line width) — widen the falloffs.'
+        );
+      }
+    } else if (flatScale > 1e-6) {
       const innerFlat = Geo.offsetClosed(flatBase, -disc.lw, dirSign);
       const fillFlat = Geo.ringFill(innerFlat, disc.lw, tol, 'spiral', lid.seamSide || 'back', flatBase, true);
       flatPoly = fillFlat.loops[0] || null;
+    }
+    if (holes) {
+      lines.push(
+        '; top: salt & pepper holes (spiral disc) ring=' + holes.attractorRadius + 'mm spacing=' +
+          holes.maxSpacingPct.toFixed(0) + '% band=' + ((lid.holes || {}).fullBand || 0) + 'mm falloff in/out=' +
+          ((lid.holes || {}).falloffIn || 0) + '/' + ((lid.holes || {}).falloffOut || 0) + 'mm bumps=' + holes.bumps +
+          ' -> ' + holes.turns + ' turns, stretched x' + holes.stretch.toFixed(4) + ' to end on the fillet at the seam'
+      );
     }
     if (!flatPoly) {
       warnings.push('Fillet height leaves no flat top to fill — starting the rounded transition directly from the center.');
