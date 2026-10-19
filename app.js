@@ -419,7 +419,14 @@
           printer: readPrinter('cn_'),
           layerHeight: num('cn_layerHeight'),
           lineWidth: num('cn_lineWidth'),
+          // The flat spiral discs' own bead (both 0 = same as the wall), shared with the lid.
+          discLayerHeight: num('cn_discLayerHeight'),
+          discLineWidth: num('cn_discLineWidth'),
           printFeed: num('cn_printFeed'),
+          flowFeed: {
+            enabled: $('cn_flowFeedEnabled').checked,
+            rate: num('cn_flowFeedRate'),
+          },
           travelFeed: num('cn_travelFeed'),
           tolerance: num('cn_tolerance'),
           printDirection: $('cn_printDirection').value === 'cw' ? 'cw' : 'ccw',
@@ -442,6 +449,10 @@
           // base cleanly, so the lid always uses the base's own values
           // (read straight off cfg.container in gcode.js).
           printFeed: num('cnl_printFeed'),
+          flowFeed: {
+            enabled: $('cnl_flowFeedEnabled').checked,
+            rate: num('cnl_flowFeedRate'),
+          },
           travelFeed: num('cnl_travelFeed'),
           tolerance: num('cnl_tolerance'),
           printDirection: $('cnl_printDirection').value === 'cw' ? 'cw' : 'ccw',
@@ -844,6 +855,9 @@
         if (!isPos(cnChecks[name])) return 'Enter a valid ' + name + ' (must be greater than 0).';
       }
       if (!Number.isFinite(cn.centerX) || !Number.isFinite(cn.centerY)) return 'Enter valid base bed center X/Y.';
+      if (!(cn.discLayerHeight >= 0)) return 'Disc layer height must be 0 (same as the wall) or more.';
+      if (!(cn.discLineWidth >= 0)) return 'Disc line width must be 0 (same as the wall) or more.';
+      if (cn.flowFeed.enabled && !isPos(cn.flowFeed.rate)) return 'Enter a valid base target volumetric flow (mm³/s).';
       if (!(cn.bottomFillet >= 0)) return 'Base fillet height must be 0 or more.';
       if (!isPos(cn.bottom) || !isPos(cn.top)) return 'Base profile scales must be greater than 0.';
       if (!(cn.midCount >= 0 && cn.midCount <= PROF_MID_MAX))
@@ -865,6 +879,7 @@
         if (!isPos(lidChecks[name])) return 'Enter a valid ' + name + ' (must be greater than 0).';
       }
       if (!Number.isFinite(lid.centerX) || !Number.isFinite(lid.centerY)) return 'Enter valid lid bed center X/Y.';
+      if (lid.flowFeed.enabled && !isPos(lid.flowFeed.rate)) return 'Enter a valid lid target volumetric flow (mm³/s).';
       if (!(lid.fillet >= 0)) return 'Lid fillet height must be 0 or more.';
       if (!Number.isFinite(lid.fitTolerance)) return 'Enter a valid lid fit tolerance.';
       if (!(cn.radius + cn.lineWidth + lid.fitTolerance > 0))
@@ -1885,7 +1900,12 @@
       if (hint) {
         hint.textContent =
           'Layer height and line width always match the base (currently ' + cfg.container.layerHeight +
-          'mm / ' + cfg.container.lineWidth + 'mm) — mismatched pitch or wall thickness would keep the two ' +
+          'mm / ' + cfg.container.lineWidth + 'mm' +
+          (cfg.container.discLayerHeight > 0 || cfg.container.discLineWidth > 0
+            ? '; the spiral disc ' + (cfg.container.discLayerHeight > 0 ? cfg.container.discLayerHeight : cfg.container.layerHeight) +
+              'mm / ' + (cfg.container.discLineWidth > 0 ? cfg.container.discLineWidth : cfg.container.lineWidth) + 'mm'
+            : '') +
+          ') — mismatched pitch or wall thickness would keep the two ' +
           'vase-mode "threads" from engaging, so they\'re not separate settings here.';
       }
       return;
@@ -3327,6 +3347,9 @@
       $('ls_lipFields').hidden = !cfg.lamp.lip.enabled;
     } else if (cfg.project === 'container') {
       cnShowProfMidCount(cfg.container.midCount);
+      $('cn_flowFeedFields').hidden = !cfg.container.flowFeed.enabled;
+      $('cnl_flowFeedFields').hidden = !cfg.lid.flowFeed.enabled;
+      syncContainerBeadHints(cfg);
     }
     syncPrinterCards();
   }
@@ -3702,6 +3725,40 @@
   // OWN bead areas (the stick's line width/layer height override, if set),
   // so a single target flow resolves to two different feeds — shown here,
   // using the SAME areas generateSpoon derives, so the numbers always match.
+  // Container: what the wall's and the disc's beads come to — their feed in flow mode, their
+  // volumetric flow at the constant feed — so the effect of a separate disc bead is visible.
+  function syncContainerBeadHints(cfg) {
+    const cn = cfg.container;
+    const lh = cn.layerHeight;
+    const lw = cn.lineWidth;
+    const discLh = cn.discLayerHeight > 0 ? cn.discLayerHeight : lh;
+    const discLw = cn.discLineWidth > 0 ? cn.discLineWidth : lw;
+    const own = discLh !== lh || discLw !== lw;
+    [
+      ['cn_beadHint', cn.printFeed, cn.flowFeed],
+      ['cnl_beadHint', cfg.lid.printFeed, cfg.lid.flowFeed],
+    ].forEach(([id, feed, ff]) => {
+      const hint = $(id);
+      if (!isPos(lh) || !isPos(lw) || !isPos(discLh) || !isPos(discLw)) {
+        hint.textContent = '';
+        return;
+      }
+      const wall = window.GcodeGen.beadArea(lw, lh);
+      const disc = window.GcodeGen.beadArea(discLw, discLh);
+      const at = (area) =>
+        ff.enabled && isPos(ff.rate)
+          ? ((ff.rate * 60) / area).toFixed(0) + ' mm/min'
+          : isPos(feed)
+          ? ((feed * area) / 60).toFixed(2) + ' mm³/s'
+          : '';
+      hint.textContent = !own
+        ? ''
+        : 'Wall bead ' + lw + ' × ' + lh + ' mm (' + wall.toFixed(2) + ' mm²): ' + at(wall) +
+          ' · disc bead ' + discLw + ' × ' + discLh + ' mm (' + disc.toFixed(2) + ' mm²): ' + at(disc) +
+          (ff.enabled ? '' : ' — turn on constant volumetric flow to have the speed follow the bead too.');
+    });
+  }
+
   function syncSpoonFlowFeedHint(cfg) {
     if (!isPos(cfg.lineWidth) || !isPos(cfg.layerHeight)) {
       $('sp_flowFeedHint').textContent = '';
@@ -4087,6 +4144,8 @@
     $('ls_lipFields').hidden = !$('ls_lipEnabled').checked;
     $('th_brimFields').hidden = !$('th_brimEnabled').checked;
     $('sd_flowFeedFields').hidden = !$('sd_flowFeedEnabled').checked;
+    $('cn_flowFeedFields').hidden = !$('cn_flowFeedEnabled').checked;
+    $('cnl_flowFeedFields').hidden = !$('cnl_flowFeedEnabled').checked;
     showProfMidCount(num('ve_profMidCount'));
     showVesselBottomStyle($('ve_seamStyle').value);
     showVesselTopShape($('ve_topShape').value);
@@ -4482,6 +4541,16 @@
 
   $('sd_flowFeedEnabled').addEventListener('change', () => {
     $('sd_flowFeedFields').hidden = !$('sd_flowFeedEnabled').checked;
+    updateShapeUI();
+  });
+
+  $('cn_flowFeedEnabled').addEventListener('change', () => {
+    $('cn_flowFeedFields').hidden = !$('cn_flowFeedEnabled').checked;
+    updateShapeUI();
+  });
+
+  $('cnl_flowFeedEnabled').addEventListener('change', () => {
+    $('cnl_flowFeedFields').hidden = !$('cnl_flowFeedEnabled').checked;
     updateShapeUI();
   });
 

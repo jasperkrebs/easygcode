@@ -1305,6 +1305,8 @@
         <div class="grid">
           <div class="field"><label>Layer height (mm)</label><input type="number" id="cn_layerHeight" value="0.6" min="0.05" step="0.05" /></div>
           <div class="field"><label>Line width (mm)</label><input type="number" id="cn_lineWidth" value="2.0" min="0.1" step="0.1" /></div>
+          <div class="field"><label>Disc layer height (mm, 0 = same as wall)</label><input type="number" id="cn_discLayerHeight" value="0" min="0" step="0.05" /></div>
+          <div class="field"><label>Disc line width (mm, 0 = same as wall)</label><input type="number" id="cn_discLineWidth" value="0" min="0" step="0.1" /></div>
           <div class="field"><label>Print feed (mm/min)</label><input type="number" id="cn_printFeed" value="1800" min="1" step="50" /></div>
           <div class="field"><label>Travel feed (mm/min)</label><input type="number" id="cn_travelFeed" value="6000" min="1" step="100" /></div>
           <div class="field"><label>Chord tolerance (mm)</label><input type="number" id="cn_tolerance" value="0.05" min="0.001" step="0.01" /></div>
@@ -1327,6 +1329,18 @@
           <div class="field"><label>Bed center X (mm)</label><input type="number" id="cn_centerX" value="125" step="1" /></div>
           <div class="field"><label>Bed center Y (mm)</label><input type="number" id="cn_centerY" value="125" step="1" /></div>
         </div>
+        <div class="field">
+          <label class="toggle"><input type="checkbox" id="cn_flowFeedEnabled" /> constant volumetric flow (instead of constant feed rate)</label>
+        </div>
+        <div id="cn_flowFeedFields" class="grid" hidden>
+          <div class="field"><label>Target flow (mm³/s)</label><input type="number" id="cn_flowFeedRate" value="20" min="0.1" step="0.5" /></div>
+        </div>
+        <p class="hint" id="cn_beadHint"></p>
+        <p class="hint">The flat spiral discs — the base's bottom and the lid's top — can have their own
+          layer height and line width (0 = the same as the wall). Up each fillet the bead then eases from
+          the disc's into the wall's along an S-curve of height, a little at every point (within each
+          revolution too): the fillet's layer spacing, every segment's extrusion and, with constant
+          volumetric flow, its speed.</p>
       </section>
 
       <section class="card" data-project="container" data-container-part="lid" hidden>
@@ -1391,7 +1405,7 @@
         <h2>Print settings (lid)</h2>
         <p class="hint" id="cnl_inheritedHint">Layer height and line width always match the
           base — mismatched pitch or wall thickness would keep the two vase-mode "threads"
-          from engaging, so they're not separate settings here.</p>
+          from engaging, so they're not separate settings here (and so do the disc's own).</p>
         <div class="grid">
           <div class="field"><label>Print feed (mm/min)</label><input type="number" id="cnl_printFeed" value="1800" min="1" step="50" /></div>
           <div class="field"><label>Travel feed (mm/min)</label><input type="number" id="cnl_travelFeed" value="6000" min="1" step="100" /></div>
@@ -1408,6 +1422,13 @@
           <div class="field"><label>Bed center X (mm)</label><input type="number" id="cnl_centerX" value="125" step="1" /></div>
           <div class="field"><label>Bed center Y (mm)</label><input type="number" id="cnl_centerY" value="125" step="1" /></div>
         </div>
+        <div class="field">
+          <label class="toggle"><input type="checkbox" id="cnl_flowFeedEnabled" /> constant volumetric flow (instead of constant feed rate)</label>
+        </div>
+        <div id="cnl_flowFeedFields" class="grid" hidden>
+          <div class="field"><label>Target flow (mm³/s)</label><input type="number" id="cnl_flowFeedRate" value="20" min="0.1" step="0.5" /></div>
+        </div>
+        <p class="hint" id="cnl_beadHint"></p>
       </section>
 
       <section class="card" data-project="thread" hidden>

@@ -2018,6 +2018,33 @@
   // (defaulting to match the base) rather than hard-coded, since this is
   // subtle enough to be worth a physical test print — a one-field flip if a
   // first attempt doesn't seat right, not a code change.
+  // The flat spiral discs (the base's bottom, the lid's top) can have their
+  // own layer height and line width (0 = the wall's own). Up the fillet the
+  // bead then eases from the disc's into the wall's along a smoothstep of the
+  // fillet's own height, read at the middle of EVERY segment — so it changes
+  // point by point within each revolution, not just from one revolution to
+  // the next: the fillet's layer spacing (each step's natural dz takes the
+  // layer height halfway up it), every segment's extrusion (its own bead
+  // area) and, in volumetric flow mode, its feed (the flow over that area).
+  // Both the base and the lid take these from the base, like its layer height
+  // and line width, so the two walls still match.
+  function containerDisc(cn, lh, lw) {
+    const discLh = cn.discLayerHeight > 0 ? cn.discLayerHeight : lh;
+    const discLw = cn.discLineWidth > 0 ? cn.discLineWidth : lw;
+    return {
+      lh: discLh,
+      lw: discLw,
+      own: discLh !== lh || discLw !== lw,
+      // The bead at height zc up a fillet F tall: the disc's at its foot, the
+      // wall's at its top.
+      at: (zc, F) => {
+        const t = F > 1e-9 ? Math.max(0, Math.min(1, zc / F)) : 1;
+        const e = t * t * (3 - 2 * t);
+        return { lh: discLh + (lh - discLh) * e, lw: discLw + (lw - discLw) * e };
+      },
+    };
+  }
+
   function generateContainer(cfg) {
     const warnings = [];
     const lines = [];
@@ -2045,6 +2072,7 @@
     if (!(lh > 0) || !(lw > 0)) return bail('Enter a valid layer height and line width.');
     if (!(cn.radius > 0)) return bail('Enter a valid radius.');
     if (!(cn.height > 0)) return bail('Enter a valid wall height.');
+    const disc = containerDisc(cn, lh, lw);
 
     const dirSign = cn.printDirection === 'cw' ? -1 : 1;
     let base = Geo.adaptiveShape('circle', { radius: cn.radius }, tol);
@@ -2094,6 +2122,13 @@
     }
 
     const area = beadArea(lw, lh);
+    const discArea = beadArea(disc.lw, disc.lh);
+    // Volumetric flow mode: every segment's feed is the target flow over its
+    // own bead area, so the disc, the fillet and the wall all run at the same
+    // mm³/s; otherwise the one print feed.
+    const flowCfg = cn.flowFeed || {};
+    const flowOn = !!flowCfg.enabled && flowCfg.rate > 0;
+    const feedFor = (a) => (flowOn ? (flowCfg.rate * 60) / a : cn.printFeed);
     const printer = cn.printer || {};
     const mode = printer.mode === 'filament' ? 'filament' : 'pellet';
     const mult = printer.multiplier > 0 ? printer.multiplier : 1;
@@ -2116,7 +2151,20 @@
       '; layerHeight=' + lh + ' lineWidth=' + lw + ' tolerance=' + tol + 'mm printDirection=' +
         (dirSign < 0 ? 'CW' : 'CCW')
     );
-    lines.push('; printFeed=' + cn.printFeed + ' travelFeed=' + cn.travelFeed + ' (mm/min)');
+    if (disc.own) {
+      lines.push(
+        '; spiral disc: layerHeight=' + disc.lh + ' lineWidth=' + disc.lw +
+          ', easing into the wall\'s up the fillet (smoothstep of height, every segment)'
+      );
+    }
+    if (flowOn) {
+      lines.push(
+        '; volumetric flow mode: target ' + flowCfg.rate + ' mm3/s (wall bead area ' + area.toFixed(2) +
+          'mm2) -> printFeed=' + feedFor(area).toFixed(0) + ' travelFeed=' + cn.travelFeed + ' (mm/min)'
+      );
+    } else {
+      lines.push('; printFeed=' + cn.printFeed + ' travelFeed=' + cn.travelFeed + ' (mm/min)');
+    }
     lines.push(
       '; printer=' + mode + ' multiplier=' + mult +
         (mode === 'filament' ? ' filamentDiameter=' + filDia + ' (E in mm of filament)' : ' (E in mm^3, volumetric)')
@@ -2164,6 +2212,18 @@
       noteZ(cur.z);
     }
 
+    // A fillet segment, extruded (and in flow mode fed) for the bead at its
+    // own middle height up the fillet — see containerDisc().
+    function emitFillet(cur, F) {
+      if (!disc.own) {
+        emitSeg(cur, feedFor(area), 1);
+        return;
+      }
+      const b = disc.at((prev ? (prev.z + cur.z) / 2 : cur.z) - disc.lh, F);
+      const a = beadArea(b.lw, b.lh);
+      emitSeg(cur, feedFor(a), 1, a);
+    }
+
     // ---- Base u-samples ----
     let uSet = [];
     for (let i = 0; i < base.length; i++) uSet.push(sampler.uOf(i));
@@ -2185,7 +2245,7 @@
     });
     const Rchar = Rchar0 * s0;
     let F = Math.max(0, cn.bottomFillet || 0);
-    const Fmax = Math.max(0, (wallH - lh) * 0.95);
+    const Fmax = Math.max(0, (wallH - disc.lh) * 0.95);
     if (F > Fmax) {
       F = Fmax;
       warnings.push('Fillet height is too large for the wall height — clamped to ' + F.toFixed(1) + 'mm.');
@@ -2195,17 +2255,17 @@
     const flatBase = base.map((p) => ({ x: p.x * flatScale, y: p.y * flatScale }));
     let flatPoly = null;
     if (flatScale > 1e-6) {
-      const innerFlat = Geo.offsetClosed(flatBase, -lw, dirSign);
-      const fillFlat = Geo.ringFill(innerFlat, lw, tol, 'spiral', cn.seamSide || 'back', flatBase, true);
+      const innerFlat = Geo.offsetClosed(flatBase, -disc.lw, dirSign);
+      const fillFlat = Geo.ringFill(innerFlat, disc.lw, tol, 'spiral', cn.seamSide || 'back', flatBase, true);
       flatPoly = fillFlat.loops[0] || null;
     }
     if (!flatPoly) {
       warnings.push('Fillet height leaves no flat bottom to fill — starting the rounded transition directly from the center.');
     } else {
-      travelAbs({ x: flatPoly[0].x + cx, y: flatPoly[0].y + cy, z: lh });
+      travelAbs({ x: flatPoly[0].x + cx, y: flatPoly[0].y + cy, z: disc.lh });
       for (let q = 1; q < flatPoly.length; q++) {
         const p = flatPoly[q];
-        emitSeg({ x: p.x + cx, y: p.y + cy, z: lh }, cn.printFeed, p.e != null ? p.e : 1);
+        emitSeg({ x: p.x + cx, y: p.y + cy, z: disc.lh }, feedFor(discArea), p.e != null ? p.e : 1, discArea);
       }
     }
     if (includeStartEnd && fanPWM > 0) lines.push('M106 S' + fanPWM + ' ; part cooling fan on');
@@ -2213,9 +2273,9 @@
     // ---- Fillet climb: same natural-step-then-rescale technique as the
     // wall below (and the vessel's own fillet), so the last turn is always
     // a fair share, never an arbitrarily tiny leftover ----
-    let vZOffset = lh;
+    let vZOffset = disc.lh;
     if (F > 1e-6) {
-      const zWallStart = lh + F;
+      const zWallStart = disc.lh + F;
       const fSampler = Geo.vesselFilletSampler(F, seamAngle(zWallStart));
       const scaleEnd = scaleAt(zWallStart);
       const filletPt = (z0, z1, u) => {
@@ -2223,7 +2283,7 @@
         const frac = fSampler.at(zc).frac;
         const s = flatScale + (scaleEnd - flatScale) * frac;
         const sp = sampler.at(u).pos;
-        return { x: sp.x * s + cx, y: sp.y * s + cy, z: lh + zc };
+        return { x: sp.x * s + cx, y: sp.y * s + cy, z: disc.lh + zc };
       };
       if (!flatPoly) travelAbs(filletPt(0, 0, 0));
       const naturalFilletDz = [];
@@ -2231,9 +2291,10 @@
         let zc0 = 0;
         let guard0 = 0;
         while (zc0 < F - 1e-6 && guard0++ < 100000) {
-          const guessDz = Math.max(0.05, Math.cos(fSampler.at(zc0).angle)) * lh;
-          const aMid = fSampler.at(Math.min(F, zc0 + guessDz / 2)).angle;
-          const dz = Math.max(0.05, Math.cos(aMid)) * lh;
+          const guessDz = Math.max(0.05, Math.cos(fSampler.at(zc0).angle)) * disc.at(zc0, F).lh;
+          const zMid = Math.min(F, zc0 + guessDz / 2);
+          const aMid = fSampler.at(zMid).angle;
+          const dz = Math.max(0.05, Math.cos(aMid)) * disc.at(zMid, F).lh;
           naturalFilletDz.push(dz);
           zc0 += dz;
         }
@@ -2247,12 +2308,12 @@
         for (let i = 0; i < uSet.length; i++) {
           const u = uSet[i];
           if (u <= 1e-9) continue;
-          emitSeg(filletPt(zc, zNext, u), cn.printFeed, 1);
+          emitFillet(filletPt(zc, zNext, u), F);
         }
-        emitSeg(filletPt(zc, zNext, 1), cn.printFeed, 1);
+        emitFillet(filletPt(zc, zNext, 1), F);
         zc = zNext;
       }
-      vZOffset = lh + F;
+      vZOffset = disc.lh + F;
     }
 
     // ---- Wall (profile + straight collar), overhang-paced ----
@@ -2284,9 +2345,9 @@
       for (let i = 0; i < uSet.length; i++) {
         const u = uSet[i];
         if (u <= 1e-9) continue;
-        emitSeg(wallPt(z0, z1, u), cn.printFeed, 1);
+        emitSeg(wallPt(z0, z1, u), feedFor(area), 1);
       }
-      emitSeg(wallPt(z0, z1, 1), cn.printFeed, 1);
+      emitSeg(wallPt(z0, z1, 1), feedFor(area), 1);
       zCursor = z1;
     }
     lines.push('; open top (stays open for the lid) — wall ends at full flow, no cap loop');
@@ -2351,6 +2412,7 @@
     if (!(lh > 0) || !(lw > 0)) return bail('The container base needs a valid layer height and line width first.');
     if (!(cn.radius > 0)) return bail('The container base needs a valid radius first.');
     if (!(lid.straightHeight > 0)) return bail('Enter a valid lid height.');
+    const disc = containerDisc(cn, lh, lw);
 
     const radius = cn.radius + cn.lineWidth + (lid.fitTolerance || 0);
     if (!(radius > 0)) return bail('Lid radius came out to zero or less — increase the base radius or the fit tolerance.');
@@ -2366,7 +2428,7 @@
     const straightN = Math.max(1, Math.round(lid.straightHeight / lh));
     const straightH = straightN * lh;
     let F = Math.max(0, lid.fillet || 0);
-    const wallH = lh + F + straightH;
+    const wallH = disc.lh + F + straightH;
 
     function seamXY(zAbs) {
       // Always a plain straight wall (no drag-editable profile on the lid),
@@ -2374,7 +2436,7 @@
       return { x: base[0].x, y: base[0].y };
     }
     function seamAngle(zAbs) {
-      if (zAbs > lh + F + 1e-6) return 0; // straight section: dead vertical
+      if (zAbs > disc.lh + F + 1e-6) return 0; // straight section: dead vertical
       const eps = Math.max(1e-3, lh * 0.02);
       const zLo = Math.max(0, zAbs - eps);
       const zHi = Math.min(wallH, zAbs + eps);
@@ -2386,6 +2448,10 @@
     }
 
     const area = beadArea(lw, lh);
+    const discArea = beadArea(disc.lw, disc.lh);
+    const flowCfg = lid.flowFeed || {};
+    const flowOn = !!flowCfg.enabled && flowCfg.rate > 0;
+    const feedFor = (a) => (flowOn ? (flowCfg.rate * 60) / a : lid.printFeed);
     const printer = lid.printer || {};
     const mode = printer.mode === 'filament' ? 'filament' : 'pellet';
     const mult = printer.multiplier > 0 ? printer.multiplier : 1;
@@ -2409,7 +2475,20 @@
         ' (matches the base so the vase-mode spiral seam threads together when flipped on)'
     );
     lines.push('; layerHeight=' + lh + ' lineWidth=' + lw + ' (inherited from the base) tolerance=' + tol + 'mm');
-    lines.push('; printFeed=' + lid.printFeed + ' travelFeed=' + lid.travelFeed + ' (mm/min)');
+    if (disc.own) {
+      lines.push(
+        '; spiral disc: layerHeight=' + disc.lh + ' lineWidth=' + disc.lw +
+          ' (inherited from the base), easing into the wall\'s up the fillet (smoothstep of height, every segment)'
+      );
+    }
+    if (flowOn) {
+      lines.push(
+        '; volumetric flow mode: target ' + flowCfg.rate + ' mm3/s (wall bead area ' + area.toFixed(2) +
+          'mm2) -> printFeed=' + feedFor(area).toFixed(0) + ' travelFeed=' + lid.travelFeed + ' (mm/min)'
+      );
+    } else {
+      lines.push('; printFeed=' + lid.printFeed + ' travelFeed=' + lid.travelFeed + ' (mm/min)');
+    }
     lines.push(
       '; printer=' + mode + ' multiplier=' + mult +
         (mode === 'filament' ? ' filamentDiameter=' + filDia + ' (E in mm of filament)' : ' (E in mm^3, volumetric)')
@@ -2457,6 +2536,18 @@
       noteZ(cur.z);
     }
 
+    // A fillet segment, extruded (and in flow mode fed) for the bead at its
+    // own middle height up the fillet — see containerDisc().
+    function emitFillet(cur, F) {
+      if (!disc.own) {
+        emitSeg(cur, feedFor(area), 1);
+        return;
+      }
+      const b = disc.at((prev ? (prev.z + cur.z) / 2 : cur.z) - disc.lh, F);
+      const a = beadArea(b.lw, b.lh);
+      emitSeg(cur, feedFor(a), 1, a);
+    }
+
     let uSet = [];
     for (let i = 0; i < base.length; i++) uSet.push(sampler.uOf(i));
     uSet = Array.from(new Set(uSet.map((u) => +u.toFixed(9)))).sort((a, b) => a - b);
@@ -2481,22 +2572,22 @@
     const flatBase = base.map((p) => ({ x: p.x * flatScale, y: p.y * flatScale }));
     let flatPoly = null;
     if (flatScale > 1e-6) {
-      const innerFlat = Geo.offsetClosed(flatBase, -lw, dirSign);
-      const fillFlat = Geo.ringFill(innerFlat, lw, tol, 'spiral', lid.seamSide || 'back', flatBase, true);
+      const innerFlat = Geo.offsetClosed(flatBase, -disc.lw, dirSign);
+      const fillFlat = Geo.ringFill(innerFlat, disc.lw, tol, 'spiral', lid.seamSide || 'back', flatBase, true);
       flatPoly = fillFlat.loops[0] || null;
     }
     if (!flatPoly) {
       warnings.push('Fillet height leaves no flat top to fill — starting the rounded transition directly from the center.');
     } else {
-      travelAbs({ x: flatPoly[0].x + cx, y: flatPoly[0].y + cy, z: lh });
+      travelAbs({ x: flatPoly[0].x + cx, y: flatPoly[0].y + cy, z: disc.lh });
       for (let q = 1; q < flatPoly.length; q++) {
         const p = flatPoly[q];
-        emitSeg({ x: p.x + cx, y: p.y + cy, z: lh }, lid.printFeed, p.e != null ? p.e : 1);
+        emitSeg({ x: p.x + cx, y: p.y + cy, z: disc.lh }, feedFor(discArea), p.e != null ? p.e : 1, discArea);
       }
     }
     if (includeStartEnd && fanPWM > 0) lines.push('M106 S' + fanPWM + ' ; part cooling fan on');
 
-    let vZOffset = lh;
+    let vZOffset = disc.lh;
     if (F > 1e-6) {
       const fSampler = Geo.vesselFilletSampler(F, 0); // arrives dead vertical — plain straight wall above it
       const filletPt = (z0, z1, u) => {
@@ -2504,7 +2595,7 @@
         const frac = fSampler.at(zc).frac;
         const s = flatScale + (1 - flatScale) * frac;
         const sp = sampler.at(u).pos;
-        return { x: sp.x * s + cx, y: sp.y * s + cy, z: lh + zc };
+        return { x: sp.x * s + cx, y: sp.y * s + cy, z: disc.lh + zc };
       };
       if (!flatPoly) travelAbs(filletPt(0, 0, 0));
       const naturalFilletDz = [];
@@ -2512,9 +2603,10 @@
         let zc0 = 0;
         let guard0 = 0;
         while (zc0 < F - 1e-6 && guard0++ < 100000) {
-          const guessDz = Math.max(0.05, Math.cos(fSampler.at(zc0).angle)) * lh;
-          const aMid = fSampler.at(Math.min(F, zc0 + guessDz / 2)).angle;
-          const dz = Math.max(0.05, Math.cos(aMid)) * lh;
+          const guessDz = Math.max(0.05, Math.cos(fSampler.at(zc0).angle)) * disc.at(zc0, F).lh;
+          const zMid = Math.min(F, zc0 + guessDz / 2);
+          const aMid = fSampler.at(zMid).angle;
+          const dz = Math.max(0.05, Math.cos(aMid)) * disc.at(zMid, F).lh;
           naturalFilletDz.push(dz);
           zc0 += dz;
         }
@@ -2528,12 +2620,12 @@
         for (let i = 0; i < uSet.length; i++) {
           const u = uSet[i];
           if (u <= 1e-9) continue;
-          emitSeg(filletPt(zc, zNext, u), lid.printFeed, 1);
+          emitFillet(filletPt(zc, zNext, u), F);
         }
-        emitSeg(filletPt(zc, zNext, 1), lid.printFeed, 1);
+        emitFillet(filletPt(zc, zNext, 1), F);
         zc = zNext;
       }
-      vZOffset = lh + F;
+      vZOffset = disc.lh + F;
     }
 
     // ---- Straight wall: dead vertical, so a flat lh per revolution exactly
@@ -2545,10 +2637,10 @@
         const u = uSet[i];
         if (u <= 1e-9) continue;
         const sp = sampler.at(u).pos;
-        emitSeg({ x: sp.x + cx, y: sp.y + cy, z: z0 + (z1 - z0) * u }, lid.printFeed, 1);
+        emitSeg({ x: sp.x + cx, y: sp.y + cy, z: z0 + (z1 - z0) * u }, feedFor(area), 1);
       }
       const spEnd = sampler.at(1).pos;
-      emitSeg({ x: spEnd.x + cx, y: spEnd.y + cy, z: z1 }, lid.printFeed, 1);
+      emitSeg({ x: spEnd.x + cx, y: spEnd.y + cy, z: z1 }, feedFor(area), 1);
     }
     lines.push('; open rim (slides over the base) — wall ends at full flow, no cap loop');
 
