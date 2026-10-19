@@ -3786,8 +3786,28 @@
     const lid = cfg.lid;
     const lw = cn.discLineWidth > 0 ? cn.discLineWidth : cn.lineWidth;
     const radius = cn.radius + cn.lineWidth + (lid.fitTolerance || 0);
-    const rFlat = radius - Math.max(0, lid.fillet || 0);
-    if (lid.top !== 'holes' || !isPos(lw) || !isPos(rFlat) || rFlat / lw > 4000) {
+    if (lid.top !== 'holes' || !isPos(lw) || !isPos(radius) || radius / lw > 4000) {
+      hint.textContent = '';
+      return;
+    }
+    // The flat top's edge exactly as generateContainerLid works it out: the fillet carved out
+    // of the outline measured from its vertex centre (a hair off the true centre once the
+    // seam point is in), so the hint's stretch is the G-code's.
+    let outline = window.Geo.adaptiveShape('circle', { radius: radius }, lid.tolerance > 0 ? lid.tolerance : 0.05);
+    if ((lid.printDirection || cn.printDirection) === 'cw') outline = window.Geo.reverseWinding(outline);
+    outline = window.Geo.rotateToSeam(outline, lid.seamSide || 'back');
+    const mid = { x: 0, y: 0 };
+    outline.forEach((p) => {
+      mid.x += p.x / outline.length;
+      mid.y += p.y / outline.length;
+    });
+    let rChar = 0;
+    outline.forEach((p) => {
+      rChar = Math.max(rChar, window.Geo.dist(p, mid));
+    });
+    const flatScale = Math.max(0, 1 - (rChar > 1e-6 ? Math.max(0, lid.fillet || 0) / rChar : 0));
+    const rFlat = Math.hypot(outline[0].x, outline[0].y) * flatScale;
+    if (!isPos(rFlat)) {
       hint.textContent = '';
       return;
     }
