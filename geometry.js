@@ -1487,8 +1487,13 @@
   // the fillet band a point is (0 at the flat side); angle from vertical is
   // 90 deg at x=0 (flat) and endAngle at x=F. Parametrised by z (not x)
   // since that's what callers walk by.
+  // `endAngle` is the wall's lean where the fillet ends: positive widening, and (the
+  // container passes it signed) negative when the wall narrows going up, down to
+  // -60 degrees: the arc then runs past vertical (a slight bulge) and curves back in
+  // to meet the wall tangentially, instead of arriving straight up at a corner.
   function vesselFilletSampler(F, endAngle) {
-    const phiMax = Math.PI / 2 - Math.max(0, Math.min((85 * Math.PI) / 180, endAngle || 0));
+    const phiMax =
+      Math.PI / 2 - Math.max((-60 * Math.PI) / 180, Math.min((85 * Math.PI) / 180, endAngle || 0));
     const sinPhiMax = Math.max(1e-6, Math.sin(phiMax));
     const R = F / Math.max(1e-6, 1 - Math.cos(phiMax));
     return {

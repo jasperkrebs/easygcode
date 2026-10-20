@@ -605,6 +605,12 @@ keep **fully independent settings** per project:
   disc, the fillet and the wall all run at the same mm³/s with the feed following each
   segment's bead. With a constant feed only the extrusion follows. Like the layer height and
   line width, the lid takes the disc settings from the base.
+  The base's body profile has a **smooth ends** option (on by default; a straight wall is
+  unaffected): the curve is level where the wall leaves the fillet's top and where it meets
+  the straight collar, so a body narrowed in the middle no longer has a corner in the silhouette
+  at the neck. The bottom fillet also follows a wall that narrows going up: it is tilted to
+  meet the wall's own lean, signed (it used to be tilted only for walls that widen, so a
+  narrowing wall got a fillet arriving straight up and a corner above it).
   The lid's **top** can be the plain ring fill or a **salt & pepper** top: the Spiral disc
   tab's disc (its turns spreading apart around a ring of holes and wiggling so neighbouring
   turns still touch — same ring radius / spacing / band / falloff / bumps settings), printed

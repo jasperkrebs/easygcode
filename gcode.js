@@ -53,7 +53,14 @@
   // (matching this function's own single-Bezier output for that case,
   // since a 2-point Bezier is already just a line) and stays exact through
   // every real control point for any larger count.
-  function makeProfile(cps) {
+  //
+  // `levelEnds` (the container's "smooth ends", off for every other caller)
+  // instead makes the curve arrive LEVEL at both ends — vertical in the
+  // silhouette, like a wall that leaves the bottom fillet and meets the straight
+  // collar above without a corner. The phantom end points keep their reflected
+  // height (so the height tangent is unchanged) but take the neighbour's
+  // scale, which zeroes the scale tangent there.
+  function makeProfile(cps, levelEnds) {
     if (cps.length === 1) {
       const s0 = Math.max(0.05, cps[0].s);
       return function () {
@@ -82,8 +89,11 @@
     const n = cps.length;
     const NT = 256;
     const table = [];
-    const phantomBefore = { h: 2 * cps[0].h - cps[1].h, s: 2 * cps[0].s - cps[1].s };
-    const phantomAfter = { h: 2 * cps[n - 1].h - cps[n - 2].h, s: 2 * cps[n - 1].s - cps[n - 2].s };
+    const phantomBefore = { h: 2 * cps[0].h - cps[1].h, s: levelEnds ? cps[1].s : 2 * cps[0].s - cps[1].s };
+    const phantomAfter = {
+      h: 2 * cps[n - 1].h - cps[n - 2].h,
+      s: levelEnds ? cps[n - 2].s : 2 * cps[n - 1].s - cps[n - 2].s,
+    };
     const catmullAt = (t) => {
       const seg = Math.max(0, Math.min(n - 2, Math.floor(t)));
       const tt = t - seg;
@@ -2086,7 +2096,7 @@
     // bottom fillet is a carve-out — a plain straight collar exactly as
     // tall as the lid's own straight section is added on top of that
     // total, so it's never part of the drag-editable profile itself.
-    const vProfile = makeProfile(buildVesselProfileCps(cn));
+    const vProfile = makeProfile(buildVesselProfileCps(cn), cn.smoothEnds);
     const s0 = vProfile(0);
     const profileWallN = Math.max(1, Math.round(cn.height / lh));
     const profileWallH = profileWallN * lh;
@@ -2116,7 +2126,9 @@
       const zHi = Math.min(wallH, zAbs + eps);
       const a = seamXY(zLo);
       const b = seamXY(zHi);
-      const lateral = Math.hypot(b.x - a.x, b.y - a.y);
+      // Signed: negative where the wall narrows going up (the fillet then meets it
+      // tangentially; the wall's cos(angle) pacing doesn't care about the sign).
+      const lateral = Math.hypot(b.x, b.y) - Math.hypot(a.x, a.y);
       const dz = Math.max(1e-6, zHi - zLo);
       return Math.atan2(lateral, dz);
     }
