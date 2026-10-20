@@ -440,6 +440,8 @@
           midCount: cnProfMidCount(),
           midPoints: cnReadProfileMidPoints(),
           top: num('cn_profTop'),
+          // Level at both ends: the wall leaves the fillet and meets the neck straight up.
+          smoothEnds: $('cn_smoothEnds').checked,
         },
         lid: {
           printer: readPrinter('cnl_'),
@@ -2508,7 +2510,7 @@
     if (!cn || !isPos(cn.height)) return;
 
     const cps = window.GcodeGen.buildVesselProfileCps(cn);
-    const prof = window.GcodeGen.makeProfile(cps);
+    const prof = window.GcodeGen.makeProfile(cps, cn.smoothEnds);
 
     const baseR = isPos(cn.radius) ? cn.radius : 30;
     const H0 = cn.height;
