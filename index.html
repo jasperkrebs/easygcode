@@ -33,6 +33,24 @@
     </nav>
     <input type="hidden" id="activeProject" value="cordhanger" />
 
+    <!-- The 3D preview lives outside <main> so it can stay pinned (top of the
+         screen on phones, side column on wide screens) while the settings
+         scroll past it. -->
+    <div class="layout">
+      <aside class="viewer">
+        <section class="card" id="viewerCard">
+          <h2>
+            3D preview
+            <button type="button" id="viewerToggle" class="viewer-toggle" aria-expanded="true" aria-controls="viewerBody">Hide</button>
+          </h2>
+          <div id="viewerBody">
+            <canvas id="preview3d" width="600" height="600"></canvas>
+            <p class="hint viewer-gesture">Drag to rotate · pinch to zoom · two-finger pan · double-tap resets</p>
+            <p class="hint"><span class="legend"></span> feedrate: blue = fast → red = slow</p>
+          </div>
+        </section>
+      </aside>
+
     <main>
       <section class="card">
         <h2>Settings preset</h2>
@@ -1653,13 +1671,6 @@
       </section>
 
       <section class="card">
-        <h2>3D preview</h2>
-        <canvas id="preview3d" width="600" height="600"></canvas>
-        <p class="hint">Drag to rotate · pinch to zoom · two-finger pan · double-tap resets</p>
-        <p class="hint"><span class="legend"></span> feedrate: blue = fast → red = slow</p>
-      </section>
-
-      <section class="card">
         <h2>Output</h2>
         <p id="stats" class="stats"></p>
         <div id="warnings" class="warnings"></div>
@@ -1671,6 +1682,7 @@
         <textarea id="output" readonly spellcheck="false"></textarea>
       </section>
     </main>
+    </div>
 
     <div class="actionbar">
       <button id="regenBtn">Regenerate G-code</button>

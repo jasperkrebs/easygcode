@@ -109,6 +109,93 @@ main {
   padding: 8px 12px 24px;
 }
 
+/* --- Pinned 3D viewer ---
+   Phones: sticks to the top of the screen while the settings scroll beneath.
+   Wide screens: becomes a sticky side column next to the settings. */
+.viewer {
+  position: sticky;
+  top: 0;
+  z-index: 9; /* under the action bar (10), over the settings cards */
+  background: var(--bg);
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.viewer .card {
+  max-width: 616px;
+  margin: 0 auto;
+  padding: 8px 10px 8px;
+}
+
+.viewer .card h2 {
+  margin: 0 0 6px;
+}
+
+.viewer .hint {
+  margin-top: 4px;
+}
+
+.viewer .viewer-gesture {
+  display: none; /* touch users find orbit/pinch on their own; shown on desktop */
+}
+
+.viewer-toggle {
+  flex: none;
+  min-width: 0;
+  background: var(--card2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Collapsed: just the title bar, so the whole screen is settings again. */
+#viewerCard.collapsed #viewerBody {
+  display: none;
+}
+
+#viewerCard.collapsed h2 {
+  margin-bottom: 0;
+}
+
+@media (min-width: 900px) {
+  .layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 640px) minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: start;
+  }
+
+  main {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: none;
+    margin: 0;
+    width: 100%;
+  }
+
+  .viewer {
+    grid-column: 2;
+    grid-row: 1;
+    top: 12px;
+    padding: 8px 12px 0 0;
+    background: none;
+    border-bottom: none;
+  }
+
+  .viewer .card {
+    max-width: none;
+    padding: 14px 14px 12px;
+  }
+
+  .viewer .viewer-gesture {
+    display: block;
+  }
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -233,10 +320,26 @@ h3.subhead {
 canvas#preview3d {
   touch-action: none; /* let drag rotate instead of scrolling the page */
   cursor: grab;
+  /* Pinned viewer: a fixed share of the screen height instead of a square,
+     so it never pushes the settings off a phone. (fitCanvases() reads the
+     rendered size, so the drawing matches whatever this works out to.) */
+  aspect-ratio: auto;
+  height: clamp(170px, 32vh, 340px);
+  height: clamp(170px, 32svh, 340px);
+  margin-top: 0;
 }
 
 canvas#preview3d:active {
   cursor: grabbing;
+}
+
+/* Wide screens: the viewer is a side column, so let it use the screen height
+   (minus the card chrome and the fixed action bar). */
+@media (min-width: 900px) {
+  canvas#preview3d {
+    height: clamp(320px, calc(100vh - 250px), 760px);
+    height: clamp(320px, calc(100svh - 250px), 760px);
+  }
 }
 
 .hint {

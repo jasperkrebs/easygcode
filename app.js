@@ -4152,13 +4152,20 @@
       'sp_preview', 'ls_preview', 'th_preview', 'sd_preview', 'preview3d', 'cn_profile',
     ].forEach((id) => {
       const c = $(id);
+      // The pinned 3D viewer can be collapsed (zero size) — leave its backing
+      // store alone until it's shown again.
+      if (id === 'preview3d' && !c.clientWidth) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       const w = c.clientWidth || 600;
       // Cap the backing store so a canvas can never feed back into its own
       // layout size and grow without bound (belt-and-braces vs missing CSS).
       const px = Math.min(1600, Math.round(w * dpr));
       // Backing store must match the CSS aspect ratio or the drawing skews.
-      const ratio = { ve_profile: 0.6, ls_preview: 0.75, th_preview: 0.75, cn_profile: 0.6 }[id] || 1;
+      // (The 3D viewer's height comes from CSS, not a fixed ratio.)
+      const ratio =
+        id === 'preview3d'
+          ? c.clientHeight / c.clientWidth || 1
+          : { ve_profile: 0.6, ls_preview: 0.75, th_preview: 0.75, cn_profile: 0.6 }[id] || 1;
       const py = Math.round(px * ratio);
       if (px > 0 && (c.width !== px || c.height !== py)) {
         c.width = px;
@@ -4653,6 +4660,27 @@
   $('tabContainer').addEventListener('click', () => switchProject('container'));
   $('tabThread').addEventListener('click', () => switchProject('thread'));
   $('tabSdisc').addEventListener('click', () => switchProject('sdisc'));
+
+  // Collapse/expand the pinned 3D viewer (remembered between visits).
+  function setViewerCollapsed(collapsed) {
+    $('viewerCard').classList.toggle('collapsed', collapsed);
+    $('viewerToggle').textContent = collapsed ? 'Show' : 'Hide';
+    $('viewerToggle').setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    if (!collapsed) {
+      fitCanvases();
+      View3D.render();
+    }
+  }
+  $('viewerToggle').addEventListener('click', () => {
+    const collapsed = !$('viewerCard').classList.contains('collapsed');
+    setViewerCollapsed(collapsed);
+    try {
+      localStorage.setItem('easygcode.viewerCollapsed', collapsed ? '1' : '0');
+    } catch (e) {}
+  });
+  try {
+    if (localStorage.getItem('easygcode.viewerCollapsed') === '1') setViewerCollapsed(true);
+  } catch (e) {}
 
   $('regenBtn').addEventListener('click', regenerate);
   $('copyBtn').addEventListener('click', copy);
