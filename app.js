@@ -9,7 +9,19 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const num = (id) => parseFloat($(id).value);
+  // A number typed by a person: a decimal comma works as well as a point (an iPhone in a language
+  // that writes decimals with a comma shows a comma on its number keypad, and a type="number"
+  // field refused it), and a typographic minus counts as a hyphen. NaN when it isn't a number.
+  function parseNum(text) {
+    let t = String(text == null ? '' : text)
+      .trim()
+      .replace(/\u2212/g, '-')
+      .replace(/\s/g, '');
+    if (t === '') return NaN;
+    if (t.indexOf(',') >= 0) t = t.indexOf('.') >= 0 ? t.replace(/,/g, '') : t.replace(',', '.');
+    return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t) ? Number(t) : NaN;
+  }
+  const num = (id) => parseNum($(id).value);
   const isPos = (v) => Number.isFinite(v) && v > 0;
 
   let lastGcode = '';
@@ -4716,10 +4728,33 @@
     });
   }
 
-  // iOS shows the numeric keypad for inputmode=decimal.
-  document.querySelectorAll('input[type="number"]').forEach((el) => {
-    el.setAttribute('inputmode', 'decimal');
+  // Number fields are text fields with the decimal keypad (a type="number" field refuses the
+  // comma some phones type). A comma typed is turned into a point when the field is left, and
+  // the phone's decimal keypad has no minus key, so a field that can go negative (no min, or a
+  // min below 0) gets a ± button beside it.
+  document.querySelectorAll('input[inputmode="decimal"]').forEach((el) => {
     el.setAttribute('autocomplete', 'off');
+    el.setAttribute('spellcheck', 'false');
+    el.addEventListener('change', () => {
+      const v = parseNum(el.value);
+      if (Number.isFinite(v) && el.value.indexOf(',') >= 0) el.value = String(v);
+    });
+    const min = el.getAttribute('min');
+    if (min !== null && parseFloat(min) >= 0) return;
+    const flip = document.createElement('button');
+    flip.type = 'button';
+    flip.className = 'sign';
+    flip.textContent = '\u00b1';
+    flip.title = 'Change the sign';
+    flip.setAttribute('aria-label', 'Change the sign');
+    flip.addEventListener('click', () => {
+      const v = parseNum(el.value);
+      if (!Number.isFinite(v)) return;
+      el.value = String(-v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    el.parentNode.insertBefore(flip, el.nextSibling);
   });
 
   let resizeTimer = null;
